@@ -1,0 +1,6 @@
+[2025-11-24T12:25:41.893Z] [API] DELETE position request received for ID: test-log-id
+[2025-11-24T12:25:41.925Z] [API] Session check: Null, Role: undefined
+[2025-11-24T12:25:41.926Z] [API] Unauthorized delete attempt
+[2025-11-24T12:33:35.192Z] [API] DELETE position request received for ID: cmickrm2q0002116xb0qgcw4l
+[2025-11-24T12:33:35.247Z] [API] Session check: Exists, Role: ADMIN
+[2025-11-24T12:33:35.299Z] [API] Position cmickrm2q0002116xb0qgcw4l deleted successfully
