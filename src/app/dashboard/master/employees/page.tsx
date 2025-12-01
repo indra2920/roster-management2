@@ -264,6 +264,9 @@ export default function EmployeesPage() {
         ? locations.filter(loc => loc.regionId === formData.regionId)
         : locations
 
+    const selectedPosition = positions.find(p => p.id === formData.positionId)
+    const isKoordinator = selectedPosition?.name?.toLowerCase().includes('koordinator')
+
     const handleRegionChange = (regionId: string) => {
         setFormData({ ...formData, regionId, locationId: '' }) // Reset location when region changes
     }
@@ -484,7 +487,9 @@ export default function EmployeesPage() {
                                 </select>
                             </div>
                             <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Jabatan</label>
+                                <label className="block text-sm font-medium text-gray-700 mb-1">
+                                    Jabatan {selectedPosition && <span className="text-xs text-gray-400 font-normal">({selectedPosition.name})</span>}
+                                </label>
                                 <select
                                     value={formData.positionId}
                                     onChange={(e) => setFormData({ ...formData, positionId: e.target.value })}
@@ -512,21 +517,27 @@ export default function EmployeesPage() {
                                 </select>
                             </div>
 
-                            {/* Location Dropdown (Filtered) */}
-                            <div>
-                                <label className="block text-sm font-medium text-gray-700 mb-1">Lokasi Kerja</label>
-                                <select
-                                    value={formData.locationId}
-                                    onChange={(e) => handleLocationChange(e.target.value)}
-                                    className="w-full border rounded-lg px-3 py-2"
-                                    disabled={!formData.regionId && filteredLocations.length === locations.length} // Optional: disable if no region selected? No, let them pick any if they want, but better to enforce hierarchy.
-                                >
-                                    <option value="">Pilih Lokasi</option>
-                                    {filteredLocations.map(loc => (
-                                        <option key={loc.id} value={loc.id}>{loc.name}</option>
-                                    ))}
-                                </select>
-                            </div>
+                            {/* Location Dropdown (Filtered) - Hidden for Koordinator */}
+                            {isKoordinator ? (
+                                <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm mb-4">
+                                    <span className="font-medium">Info:</span> Lokasi kerja tidak perlu dipilih untuk posisi Koordinator.
+                                </div>
+                            ) : (
+                                <div>
+                                    <label className="block text-sm font-medium text-gray-700 mb-1">Lokasi Kerja</label>
+                                    <select
+                                        value={formData.locationId}
+                                        onChange={(e) => handleLocationChange(e.target.value)}
+                                        className="w-full border rounded-lg px-3 py-2"
+                                        disabled={!formData.regionId && filteredLocations.length === locations.length}
+                                    >
+                                        <option value="">Pilih Lokasi</option>
+                                        {filteredLocations.map(loc => (
+                                            <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                        ))}
+                                    </select>
+                                </div>
+                            )}
 
                             <div className="flex justify-end gap-3 mt-6">
                                 <button type="button" onClick={() => setIsModalOpen(false)} className="px-4 py-2 text-gray-600 hover:bg-gray-100 rounded-lg" disabled={isSaving}>Batal</button>

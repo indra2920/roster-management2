@@ -105,10 +105,18 @@ export default function NotificationBell() {
                                     >
                                         <div className="flex gap-3">
                                             <div className="flex-1">
-                                                <p className={clsx("text-sm font-medium", !notification.isRead ? "text-blue-900" : "text-gray-900")}>
-                                                    {notification.title}
-                                                </p>
-                                                <p className="text-sm text-gray-600 mt-1">
+                                                <div className="flex items-center gap-2 mb-1">
+                                                    {notification.type === 'DURATION_EXCEEDED' && (
+                                                        <span className="w-2 h-2 rounded-full bg-red-500 animate-pulse" />
+                                                    )}
+                                                    {notification.type === 'DURATION_WARNING' && (
+                                                        <span className="w-2 h-2 rounded-full bg-yellow-500" />
+                                                    )}
+                                                    <p className={clsx("text-sm font-medium", !notification.isRead ? "text-blue-900" : "text-gray-900")}>
+                                                        {notification.title}
+                                                    </p>
+                                                </div>
+                                                <p className="text-sm text-gray-600">
                                                     {notification.message}
                                                 </p>
                                                 <p className="text-xs text-gray-400 mt-2">

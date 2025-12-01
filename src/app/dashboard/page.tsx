@@ -31,10 +31,11 @@ export default function Dashboard() {
 
                 {/* Sidebar / Actions Area */}
                 <div className="space-y-8">
-                    {(session?.user?.role === 'MANAGER' || session?.user?.role === 'ADMIN') && (
+                    {(session?.user?.role === 'MANAGER' || session?.user?.role === 'ADMIN' || session?.user?.positionId) ? (
                         <ApprovalsDashboard />
+                    ) : (
+                        <RequestForm />
                     )}
-                    <RequestForm />
                 </div>
             </div>
         </>

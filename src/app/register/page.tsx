@@ -109,6 +109,9 @@ export default function RegisterPage() {
         ? locations.filter(loc => loc.regionId === formData.regionId)
         : locations
 
+    const selectedPosition = positions.find(p => p.id === formData.positionId)
+    const isKoordinator = selectedPosition?.name?.toLowerCase().includes('koordinator')
+
     const handleRegionChange = (regionId: string) => {
         setFormData({ ...formData, regionId, locationId: '' })
     }
@@ -210,22 +213,28 @@ export default function RegisterPage() {
                         </select>
                     </div>
 
-                    <div>
-                        <label className="block text-sm font-medium text-gray-700 mb-1">
-                            Lokasi <span className="text-red-500">*</span>
-                        </label>
-                        <select
-                            value={formData.locationId}
-                            onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
-                            className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
-                            required
-                        >
-                            <option value="">Pilih Lokasi</option>
-                            {filteredLocations.map(loc => (
-                                <option key={loc.id} value={loc.id}>{loc.name}</option>
-                            ))}
-                        </select>
-                    </div>
+                    {isKoordinator ? (
+                        <div className="p-3 bg-blue-50 text-blue-700 rounded-lg text-sm mb-4">
+                            <span className="font-medium">Info:</span> Lokasi kerja tidak perlu dipilih untuk posisi Koordinator.
+                        </div>
+                    ) : (
+                        <div>
+                            <label className="block text-sm font-medium text-gray-700 mb-1">
+                                Lokasi <span className="text-red-500">*</span>
+                            </label>
+                            <select
+                                value={formData.locationId}
+                                onChange={(e) => setFormData({ ...formData, locationId: e.target.value })}
+                                className="w-full px-4 py-2 border border-gray-300 rounded-lg focus:ring-2 focus:ring-blue-500 focus:border-transparent"
+                                required={!isKoordinator}
+                            >
+                                <option value="">Pilih Lokasi</option>
+                                {filteredLocations.map(loc => (
+                                    <option key={loc.id} value={loc.id}>{loc.name}</option>
+                                ))}
+                            </select>
+                        </div>
+                    )}
 
                     <button
                         type="submit"

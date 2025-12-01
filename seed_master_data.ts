@@ -73,39 +73,53 @@ async function main() {
     // Create Positions
     const positions = await Promise.all([
         prisma.position.upsert({
+            where: { id: 'pos-sos' },
+            update: { level: 1 },
+            create: {
+                id: 'pos-sos',
+                name: 'SOS',
+                description: 'Senior Operations Staff',
+                level: 1
+            }
+        }),
+        prisma.position.upsert({
+            where: { id: 'pos-gsl' },
+            update: { level: 2 },
+            create: {
+                id: 'pos-gsl',
+                name: 'GSL',
+                description: 'Group Shift Leader',
+                level: 2
+            }
+        }),
+        prisma.position.upsert({
+            where: { id: 'pos-koordinator' },
+            update: { level: 3 },
+            create: {
+                id: 'pos-koordinator',
+                name: 'Koordinator',
+                description: 'Koordinator Lapangan',
+                level: 3
+            }
+        }),
+        prisma.position.upsert({
             where: { id: 'pos-manager' },
-            update: {},
+            update: { level: 4 },
             create: {
                 id: 'pos-manager',
                 name: 'Manager',
-                description: 'Manajer departemen'
-            }
-        }),
-        prisma.position.upsert({
-            where: { id: 'pos-staff' },
-            update: {},
-            create: {
-                id: 'pos-staff',
-                name: 'Staff',
-                description: 'Staff operasional'
-            }
-        }),
-        prisma.position.upsert({
-            where: { id: 'pos-supervisor' },
-            update: {},
-            create: {
-                id: 'pos-supervisor',
-                name: 'Supervisor',
-                description: 'Supervisor tim'
+                description: 'Manajer Departemen',
+                level: 4
             }
         }),
         prisma.position.upsert({
             where: { id: 'pos-admin' },
-            update: {},
+            update: { level: 99 },
             create: {
                 id: 'pos-admin',
                 name: 'Admin',
-                description: 'Administrator'
+                description: 'Administrator',
+                level: 99
             }
         })
     ])

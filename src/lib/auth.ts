@@ -16,7 +16,10 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 const user = await prisma.user.findUnique({
-                    where: { email: credentials.email }
+                    where: { email: credentials.email },
+                    include: {
+                        position: { select: { name: true } }
+                    }
                 })
 
                 if (!user) {
@@ -35,6 +38,10 @@ export const authOptions: NextAuthOptions = {
                         name: user.name,
                         email: user.email,
                         role: user.role,
+                        positionId: user.positionId,
+                        positionName: user.position?.name,
+                        locationId: user.locationId,
+                        regionId: user.regionId,
                     }
                 }
 
@@ -47,6 +54,10 @@ export const authOptions: NextAuthOptions = {
             if (user) {
                 token.role = user.role
                 token.id = user.id
+                token.positionId = user.positionId
+                token.positionName = user.positionName
+                token.locationId = user.locationId
+                token.regionId = user.regionId
             }
             return token
         },
@@ -54,11 +65,26 @@ export const authOptions: NextAuthOptions = {
             if (session?.user) {
                 session.user.role = token.role
                 session.user.id = token.id
+                session.user.positionId = token.positionId
+                session.user.positionName = token.positionName
+                session.user.locationId = token.locationId
+                session.user.regionId = token.regionId
             }
             return session
         }
     },
     pages: {
         signIn: '/login',
-    }
+    },
+    cookies: {
+        sessionToken: {
+            name: `next-auth.session-token`,
+            options: {
+                httpOnly: true,
+                sameSite: 'lax',
+                path: '/',
+                secure: process.env.NODE_ENV === 'production',
+            },
+        },
+    },
 }

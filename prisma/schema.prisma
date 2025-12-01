@@ -1,7 +1,6 @@
 datasource db {
   provider = "postgresql"
-  url = env("POSTGRES_PRISMA_URL") // Uses connection pooling
-  directUrl = env("POSTGRES_URL_NON_POOLING") // Uses a direct connection
+  url      = env("DATABASE_URL")
 }
 
 generator client {
@@ -54,6 +53,15 @@ model Request {
   
   approvals   Approval[]
   delegation  Delegation?
+  
+  nextApproverPositionId String?
+  nextApproverPosition   Position? @relation("NextApprover", fields: [nextApproverPositionId], references: [id])
+  currentApprovalLevel   Int       @default(0)
+
+  // Geolocation
+  requestLat      Float?
+  requestLong     Float?
+  requestAddress  String?
 }
 
 model Approval {
@@ -64,7 +72,13 @@ model Approval {
   approver  User     @relation(fields: [approverId], references: [id])
   status    String   // "APPROVED", "REJECTED"
   comment   String?
+  approvalLevel Int   @default(0) // Track which level this approval was at
   createdAt DateTime @default(now())
+
+  // Geolocation
+  approvalLat     Float?
+  approvalLong    Float?
+  approvalAddress String?
 }
 
 model Location {
@@ -94,6 +108,9 @@ model Position {
   users       User[]
   createdAt   DateTime @default(now())
   updatedAt   DateTime @updatedAt
+  
+  level       Int      @default(0)
+  requestsToApprove Request[] @relation("NextApprover")
 }
 
 model Setting {

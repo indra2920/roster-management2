@@ -5,12 +5,37 @@ import { authOptions } from '@/lib/auth'
 
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions)
-    if (!session || (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')) {
+
+    // Check for Role OR Position access
+    const positionName = session?.user?.positionName || ''
+    const isGSL = positionName.includes('GSL')
+    const isKoordinator = positionName.toLowerCase().includes('koordinator')
+    const isAdminOrManager = session?.user?.role === 'ADMIN' || session?.user?.role === 'MANAGER'
+
+    if (!session || (!isAdminOrManager && !isGSL && !isKoordinator)) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     try {
+        let whereClause: any = {}
+
+        // Apply filters for GSL and Koordinator
+        if (!isAdminOrManager) {
+            if (isGSL) {
+                if (!session.user.locationId) {
+                    return NextResponse.json({ error: 'GSL account has no location assigned' }, { status: 400 })
+                }
+                whereClause.locationId = session.user.locationId
+            } else if (isKoordinator) {
+                if (!session.user.regionId) {
+                    return NextResponse.json({ error: 'Koordinator account has no region assigned' }, { status: 400 })
+                }
+                whereClause.regionId = session.user.regionId
+            }
+        }
+
         const users = await prisma.user.findMany({
+            where: whereClause,
             select: {
                 id: true,
                 name: true,

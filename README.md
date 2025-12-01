@@ -1,36 +1,102 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# Roster Management System
 
-## Getting Started
+Aplikasi manajemen roster karyawan dengan sistem approval multi-level untuk pengelolaan onsite/offsite work.
 
-First, run the development server:
+## Features
 
+- 🔐 **Multi-Role Authentication**: Admin, Manager, Koordinator, Employee
+- 📝 **Request Management**: Pengajuan onsite/offsite dengan approval workflow
+- 📊 **Analytics Dashboard**: Grafik dan statistik lengkap
+- 🔔 **Notifications**: Notifikasi otomatis untuk batas durasi
+- 📍 **Location & Region Tracking**: Manajemen berdasarkan lokasi dan wilayah
+- 👥 **Master Data Management**: Kelola positions, locations, regions
+
+## Tech Stack
+
+- **Framework**: Next.js 16 (App Router)
+- **Database**: PostgreSQL (via Prisma ORM)
+- **Authentication**: NextAuth.js
+- **UI**: React, TailwindCSS, Recharts
+- **Deployment**: Vercel
+
+## Quick Start (Local Development)
+
+### Prerequisites
+
+- Node.js 18+
+- PostgreSQL database
+
+### Installation
+
+1. Clone repository:
 ```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+git clone https://github.com/YOUR_USERNAME/roster-management.git
+cd roster-management
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+2. Install dependencies:
+```bash
+npm install
+```
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+3. Setup environment variables:
+```bash
+cp .env.example .env.local
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+Edit `.env.local`:
+```env
+DATABASE_URL="postgresql://user:password@localhost:5432/roster_db"
+NEXTAUTH_SECRET="your-secret-key"
+NEXTAUTH_URL="http://localhost:3000"
+```
 
-## Learn More
+4. Run database migrations:
+```bash
+npx prisma migrate dev
+npx prisma generate
+```
 
-To learn more about Next.js, take a look at the following resources:
+5. Seed database:
+```bash
+npx ts-node prisma/seed.ts
+```
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+6. Start development server:
+```bash
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+Open [http://localhost:3000](http://localhost:3000)
 
-## Deploy on Vercel
+## Default Login Credentials
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
+- **Admin**: `admin@example.com` / `password123`
+- **Manager**: `manager@example.com` / `password123`
+- **Employee**: `employee@example.com` / `password123`
 
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+## Deployment
+
+Lihat panduan lengkap di [VERCEL_DEPLOYMENT.md](./VERCEL_DEPLOYMENT.md)
+
+## Project Structure
+
+```
+roster-management/
+├── prisma/
+│   ├── schema.prisma          # Database schema
+│   └── seed.ts                # Database seeding
+├── src/
+│   ├── app/
+│   │   ├── api/               # API routes
+│   │   ├── dashboard/         # Dashboard pages
+│   │   └── login/             # Login page
+│   ├── components/            # React components
+│   └── lib/                   # Utilities
+├── VERCEL_DEPLOYMENT.md       # Deployment guide
+└── package.json
+```
+
+## License
+
+Private - Internal Use Only

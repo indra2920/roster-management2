@@ -1,6 +1,6 @@
 'use client'
 
-import { Home, Calendar, ClipboardList, LogOut, User, Users, MapPin, Map, Briefcase, Settings } from 'lucide-react'
+import { LayoutDashboard, FileText, Users, Database, Settings, LogOut } from 'lucide-react'
 import { signOut, useSession } from 'next-auth/react'
 import Link from 'next/link'
 import { usePathname } from 'next/navigation'
@@ -11,6 +11,7 @@ type NavItem = {
     href: string
     icon: React.ElementType
     roles?: string[]
+    positions?: string[]
 }
 
 export default function Sidebar() {
@@ -18,11 +19,11 @@ export default function Sidebar() {
     const { data: session } = useSession()
 
     const navItems: NavItem[] = [
-        { name: 'Dashboard', href: '/dashboard', icon: Home },
-        { name: 'Data Karyawan', href: '/dashboard/master/employees', icon: Users, roles: ['ADMIN', 'MANAGER'] },
-        { name: 'Jabatan', href: '/dashboard/master/positions', icon: Briefcase, roles: ['ADMIN', 'MANAGER'] },
-        { name: 'Lokasi Kerja', href: '/dashboard/master/locations', icon: MapPin, roles: ['ADMIN', 'MANAGER'] },
-        { name: 'Wilayah Kerja', href: '/dashboard/master/regions', icon: Map, roles: ['ADMIN', 'MANAGER'] },
+        { name: 'Dashboard', href: '/dashboard', icon: LayoutDashboard },
+        { name: 'Request', href: '/dashboard/request', icon: FileText, roles: ['EMPLOYEE', 'GSL', 'Koordinator'] },
+        { name: 'Data Karyawan', href: '/dashboard/master/employees', icon: Users, positions: ['GSL', 'Koordinator'], roles: ['ADMIN', 'MANAGER'] },
+        { name: 'Master Data', href: '/dashboard/master', icon: Database, roles: ['ADMIN', 'MANAGER'] },
+        { name: 'Database', href: '/dashboard/database', icon: Database, roles: ['ADMIN'] },
         { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
     ]
 
@@ -33,7 +34,24 @@ export default function Sidebar() {
             </div>
 
             <div className="flex-1 px-4 space-y-2">
-                {navItems.filter(item => !item.roles || item.roles.includes(session?.user?.role || '')).map((item) => {
+                {navItems.filter(item => {
+                    const userRole = session?.user?.role || ''
+                    const userPosition = session?.user?.positionName || ''
+
+                    const hasRole = !item.roles || item.roles.includes(userRole)
+
+                    // Check if user has one of the allowed positions
+                    // Note: userPosition might be "Koordinator Area 1", so we check if it includes "Koordinator"
+                    const hasPosition = !item.positions || (item.positions.some(pos => userPosition.includes(pos)))
+
+                    // If item has BOTH roles and positions, we treat it as OR (accessible by Role OR Position)
+                    if (item.roles && item.positions) {
+                        return hasRole || hasPosition
+                    }
+
+                    if (item.positions) return hasPosition
+                    return hasRole
+                }).map((item) => {
                     const Icon = item.icon
                     return (
                         <Link

@@ -57,10 +57,37 @@ export default function RequestForm() {
         }
 
         setLoading(true)
+
+        // Capture Geolocation
+        let locationData = { lat: null as number | null, long: null as number | null, address: null as string | null }
+
+        try {
+            if (navigator.geolocation) {
+                const position = await new Promise<GeolocationPosition>((resolve, reject) => {
+                    navigator.geolocation.getCurrentPosition(resolve, reject, { timeout: 10000 })
+                })
+                locationData.lat = position.coords.latitude
+                locationData.long = position.coords.longitude
+                // Optional: Reverse geocoding could happen here or on server, but for now just sending coords
+            }
+        } catch (error) {
+            console.error('Error getting location:', error)
+            // Proceed without location if it fails (or show warning?)
+            // User requirement implies location is important. Maybe show toast?
+        }
+
         const res = await fetch('/api/requests', {
             method: 'POST',
             headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type, startDate, endDate, reason, justification: exceedsLimit ? justification : null }),
+            body: JSON.stringify({
+                type,
+                startDate,
+                endDate,
+                reason,
+                justification: exceedsLimit ? justification : null,
+                requestLat: locationData.lat,
+                requestLong: locationData.long
+            }),
         })
 
         if (res.ok) {
@@ -94,6 +121,11 @@ export default function RequestForm() {
                     >
                         <option value="ONSITE">On-site Work</option>
                         <option value="OFFSITE">Off-site Work</option>
+                        <option value="CUTI">Cuti / Leave</option>
+                        <option value="SAKIT">Sakit / Sick Leave</option>
+                        <option value="IZIN">Izin / Permission</option>
+                        <option value="WFH">Work From Home</option>
+                        <option value="DINAS_LUAR">Dinas Luar / Business Trip</option>
                     </select>
                 </div>
 

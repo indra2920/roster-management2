@@ -11,7 +11,22 @@ type Request = {
     startDate: string
     endDate: string
     reason: string
-    user: { name: string; email: string }
+    currentApprovalLevel: number
+    user: {
+        name: string
+        email: string
+        position?: { name: string }
+    }
+    nextApproverPosition?: { name: string }
+    approvals?: Array<{
+        id: string
+        status: string
+        createdAt: string
+        approver: {
+            name: string
+            position?: { name: string }
+        }
+    }>
 }
 
 export default function ApprovalsDashboard() {

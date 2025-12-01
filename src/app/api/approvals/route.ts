@@ -9,29 +9,62 @@ export async function GET(request: Request) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
-    // Get requests where the current user is the manager of the requester
-    // and status is PENDING
     try {
+        // Fetch current user with position info
+        const currentUser = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: { positionId: true, role: true }
+        })
+
+        // Check if user has approval rights (has a position OR is ADMIN OR is MANAGER)
+        const hasApprovalRights = currentUser?.positionId || session.user.role === 'ADMIN' || session.user.role === 'MANAGER'
+
+        if (!hasApprovalRights) {
+            // No approval rights, return empty array
+            return NextResponse.json([])
+        }
+
         let whereClause: any = {
             status: 'PENDING'
         }
 
-        // If MANAGER, only show requests from their subordinates
-        // If ADMIN, show all pending requests
-        if (session.user.role === 'MANAGER') {
-            whereClause.user = {
-                managerId: session.user.id
+        // Filter by nextApproverPositionId to show only requests assigned to this position
+        if (session.user.role === 'ADMIN') {
+            // ADMIN sees all pending requests
+        } else if (session.user.role === 'MANAGER') {
+            // Special handling for MANAGER role
+            // If user has positionId, use it. If not, find the "Manager" position ID
+            let managerPositionId = currentUser?.positionId
+
+            if (!managerPositionId) {
+                const managerPos = await prisma.position.findFirst({ where: { name: { contains: 'Manager' } } })
+                managerPositionId = managerPos?.id
             }
-        } else if (session.user.role !== 'ADMIN') {
-            // If not MANAGER or ADMIN, return empty array
-            return NextResponse.json([])
+
+            if (managerPositionId) {
+                whereClause.nextApproverPositionId = managerPositionId
+            }
+        } else if (currentUser?.positionId) {
+            whereClause.nextApproverPositionId = currentUser.positionId
         }
+        // ADMIN sees all pending requests
 
         const pendingRequests = await prisma.request.findMany({
             where: whereClause,
             include: {
                 user: {
-                    select: { name: true, email: true }
+                    select: { name: true, email: true, position: { select: { name: true } } }
+                },
+                nextApproverPosition: {
+                    select: { name: true }
+                },
+                approvals: {
+                    include: {
+                        approver: {
+                            select: { name: true, position: { select: { name: true } } }
+                        }
+                    },
+                    orderBy: { createdAt: 'asc' }
                 }
             },
             orderBy: { createdAt: 'asc' }
@@ -50,7 +83,7 @@ export async function POST(request: Request) {
     }
 
     try {
-        const { requestId, status, comment } = await request.json()
+        const { requestId, status, comment, approvalLat, approvalLong } = await request.json()
         console.log('📝 Approval request:', { requestId, status, comment, userId: session.user.id, userRole: session.user.role })
 
         if (!['APPROVED', 'REJECTED'].includes(status)) {
@@ -76,25 +109,74 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Request not found' }, { status: 404 })
         }
 
-        if (requestToUpdate.user.managerId !== session.user.id && session.user.role !== 'ADMIN') {
-            console.log('❌ Forbidden - managerId:', requestToUpdate.user.managerId, 'sessionId:', session.user.id, 'role:', session.user.role)
+        // Fetch current user with position info
+        const currentUser = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            select: { positionId: true, role: true }
+        })
+
+        // Check authorization: user must have a position OR be ADMIN
+        const hasApprovalRights = currentUser?.positionId || session.user.role === 'ADMIN'
+
+        if (!hasApprovalRights) {
+            console.log('❌ Forbidden - no position or admin role')
             return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
         }
 
         console.log('✅ Authorization passed, updating request...')
 
+        // Get position IDs for approval hierarchy
+        const gslPosition = await prisma.position.findFirst({ where: { name: { contains: 'GSL' } } })
+        const koordinatorPosition = await prisma.position.findFirst({ where: { name: { contains: 'Koordinator' } } })
+        const managerPosition = await prisma.position.findFirst({ where: { name: 'Manager' } })
+
+        // Determine next approver and new level based on current level
+        let nextApproverPositionId: string | null = null
+        let newApprovalLevel = requestToUpdate.currentApprovalLevel
+        let finalStatus = status
+
+        if (status === 'APPROVED') {
+            // Progress to next level
+            if (requestToUpdate.currentApprovalLevel === 1) {
+                // GSL approved, move to Koordinator
+                nextApproverPositionId = koordinatorPosition?.id || null
+                newApprovalLevel = 2
+                finalStatus = 'PENDING' // Still pending at next level
+            } else if (requestToUpdate.currentApprovalLevel === 2) {
+                // Koordinator approved, move to Manager
+                nextApproverPositionId = managerPosition?.id || null
+                newApprovalLevel = 3
+                finalStatus = 'PENDING' // Still pending at next level
+            } else if (requestToUpdate.currentApprovalLevel === 3) {
+                // Manager approved, final approval
+                nextApproverPositionId = null
+                finalStatus = 'APPROVED'
+            }
+        } else {
+            // Rejected at any level - final rejection
+            finalStatus = 'REJECTED'
+            nextApproverPositionId = null
+        }
+
         // Transaction to update request status and create approval record
         const result = await prisma.$transaction([
             prisma.request.update({
                 where: { id: requestId },
-                data: { status }
+                data: {
+                    status: finalStatus,
+                    currentApprovalLevel: newApprovalLevel,
+                    nextApproverPositionId
+                }
             }),
             prisma.approval.create({
                 data: {
                     requestId,
                     approverId: session.user.id,
                     status,
-                    comment
+                    comment,
+                    approvalLevel: requestToUpdate.currentApprovalLevel,
+                    approvalLat: approvalLat || null,
+                    approvalLong: approvalLong || null
                 }
             })
         ])

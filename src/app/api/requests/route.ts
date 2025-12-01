@@ -60,11 +60,50 @@ export async function POST(request: Request) {
 
     try {
         const body = await request.json()
-        const { type, startDate, endDate, reason, justification } = body
+        const { type, startDate, endDate, reason, justification, requestLat, requestLong } = body
 
         // Basic validation
         if (!type || !startDate || !endDate || !reason) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+        }
+
+        // Get user's position to determine approval flow
+        const user = await prisma.user.findUnique({
+            where: { id: session.user.id },
+            include: { position: true }
+        })
+
+        if (!user) {
+            return NextResponse.json({ error: 'User not found' }, { status: 404 })
+        }
+
+        // Determine next approver based on requester's position
+        let nextApproverPositionId: string | null = null
+        let currentApprovalLevel = 0
+
+        // Get position IDs for approval hierarchy
+        const gslPosition = await prisma.position.findFirst({ where: { name: { contains: 'GSL' } } })
+        const koordinatorPosition = await prisma.position.findFirst({ where: { name: { contains: 'Koordinator' } } })
+        const managerPosition = await prisma.position.findFirst({ where: { name: 'Manager' } })
+
+        const userPositionName = user.position?.name || ''
+
+        if (userPositionName.includes('SOS')) {
+            // SOS → GSL → Koordinator → Manager
+            nextApproverPositionId = gslPosition?.id || null
+            currentApprovalLevel = 1
+        } else if (userPositionName.includes('GSL')) {
+            // GSL → Koordinator → Manager
+            nextApproverPositionId = koordinatorPosition?.id || null
+            currentApprovalLevel = 2
+        } else if (userPositionName.toLowerCase().includes('koordinator')) {
+            // Koordinator → Manager
+            nextApproverPositionId = managerPosition?.id || null
+            currentApprovalLevel = 3
+        } else {
+            // Other positions → Manager directly
+            nextApproverPositionId = managerPosition?.id || null
+            currentApprovalLevel = 3
         }
 
         const newRequest = await prisma.request.create({
@@ -75,7 +114,11 @@ export async function POST(request: Request) {
                 endDate: new Date(endDate),
                 reason,
                 justification: justification || null,
-                status: 'PENDING'
+                requestLat: requestLat || null,
+                requestLong: requestLong || null,
+                status: 'PENDING',
+                nextApproverPositionId,
+                currentApprovalLevel
             }
         })
 
