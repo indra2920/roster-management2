@@ -6,8 +6,18 @@ if (!getApps().length) {
     if (process.env.FIREBASE_PRIVATE_KEY) {
         try {
             // Sanitize Private Key:
+            let key = process.env.FIREBASE_PRIVATE_KEY || "";
+
+            // Handle Base64 encoded key (Safe for Vercel Env Vars)
+            if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+                try {
+                    key = Buffer.from(key, 'base64').toString('utf-8');
+                } catch (e) {
+                    console.warn("Failed to decode Base64 private key, falling back to raw value");
+                }
+            }
+
             // 1. Remove surrounding quotes if present (common copy-paste error)
-            let key = process.env.FIREBASE_PRIVATE_KEY;
             if (key.startsWith('"') && key.endsWith('"')) {
                 key = key.slice(1, -1);
             }
