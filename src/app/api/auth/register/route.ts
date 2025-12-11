@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 
 export async function POST(request: Request) {
     try {
@@ -21,12 +21,12 @@ export async function POST(request: Request) {
             )
         }
 
-        // Check if email already exists
-        const existingUser = await prisma.user.findUnique({
-            where: { email }
-        })
+        const usersRef = adminDb.collection('users');
 
-        if (existingUser) {
+        // Check if email already exists
+        const existing = await usersRef.where('email', '==', email).limit(1).get();
+
+        if (!existing.empty) {
             return NextResponse.json(
                 { error: 'Email sudah terdaftar' },
                 { status: 400 }
@@ -34,30 +34,33 @@ export async function POST(request: Request) {
         }
 
         // Create new user with isActive: false (pending approval)
-        const newUser = await prisma.user.create({
-            data: {
-                name,
-                email,
-                password, // TODO: Hash password with bcrypt
-                role: 'EMPLOYEE',
-                isActive: false,
-                positionId,
-                locationId,
-                regionId,
-            },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-                isActive: true,
-            }
-        })
+        const newDocRef = usersRef.doc();
+        const newUser = {
+            id: newDocRef.id,
+            name,
+            email,
+            password, // TODO: Hash password with bcrypt
+            role: 'EMPLOYEE',
+            isActive: false,
+            positionId,
+            locationId,
+            regionId,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        await newDocRef.set(newUser);
 
         return NextResponse.json({
             success: true,
             message: 'Pendaftaran berhasil! Silakan login setelah akun Anda diaktifkan oleh manager.',
-            user: newUser
+            user: {
+                id: newUser.id,
+                name: newUser.name,
+                email: newUser.email,
+                role: newUser.role,
+                isActive: newUser.isActive
+            }
         })
     } catch (error) {
         console.error('Registration error:', error)

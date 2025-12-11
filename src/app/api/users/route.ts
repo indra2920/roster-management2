@@ -1,12 +1,14 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { DocumentData } from 'firebase-admin/firestore'
 
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions)
 
     // Check for Role OR Position access
+    // Note: session user might not have positionName if not mapped in auth.ts yet, but we handled that.
     const positionName = session?.user?.positionName || ''
     const isGSL = positionName.includes('GSL')
     const isKoordinator = positionName.toLowerCase().includes('koordinator')
@@ -17,7 +19,8 @@ export async function GET(request: Request) {
     }
 
     try {
-        let whereClause: any = {}
+        let usersRef = adminDb.collection('users');
+        let query: FirebaseFirestore.Query = usersRef;
 
         // Apply filters for GSL and Koordinator
         if (!isAdminOrManager) {
@@ -25,34 +28,68 @@ export async function GET(request: Request) {
                 if (!session.user.locationId) {
                     return NextResponse.json({ error: 'GSL account has no location assigned' }, { status: 400 })
                 }
-                whereClause.locationId = session.user.locationId
+                query = query.where('locationId', '==', session.user.locationId);
             } else if (isKoordinator) {
                 if (!session.user.regionId) {
                     return NextResponse.json({ error: 'Koordinator account has no region assigned' }, { status: 400 })
                 }
-                whereClause.regionId = session.user.regionId
+                query = query.where('regionId', '==', session.user.regionId);
             }
         }
 
-        const users = await prisma.user.findMany({
-            where: whereClause,
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                role: true,
-                position: { select: { id: true, name: true } },
-                location: { select: { id: true, name: true } },
-                region: { select: { id: true, name: true } },
-                manager: {
-                    select: { name: true }
-                },
-                isActive: true
-            },
-            orderBy: { name: 'asc' }
-        })
-        return NextResponse.json(users)
+        // Fetch Users
+        const usersSnapshot = await query.get();
+        const usersData = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() }));
+
+        // Fetch Master Data for Joins
+        const [positionsSnap, locationsSnap, regionsSnap] = await Promise.all([
+            adminDb.collection('positions').get(),
+            adminDb.collection('locations').get(),
+            adminDb.collection('regions').get()
+        ]);
+
+        const positionsMap = new Map(positionsSnap.docs.map(d => [d.id, d.data()]));
+        const locationsMap = new Map(locationsSnap.docs.map(d => [d.id, d.data()]));
+        const regionsMap = new Map(regionsSnap.docs.map(d => [d.id, d.data()]));
+
+        const usersMap = new Map(usersData.map(u => [u.id, u]));
+
+        const joinedUsers = await Promise.all(usersData.map(async (user: any) => {
+            // Resolve Manager Name
+            let managerName = null;
+            if (user.managerId) {
+                if (usersMap.has(user.managerId)) {
+                    const mgr = usersMap.get(user.managerId) as DocumentData;
+                    managerName = mgr.name;
+                } else {
+                    const mDoc = await adminDb.collection('users').doc(user.managerId).get();
+                    if (mDoc.exists) managerName = mDoc.data()?.name;
+                }
+            }
+
+            const posData = user.positionId ? positionsMap.get(user.positionId) : null;
+            const locData = user.locationId ? locationsMap.get(user.locationId) : null;
+            const regData = user.regionId ? regionsMap.get(user.regionId) : null;
+
+            return {
+                id: user.id,
+                name: user.name,
+                email: user.email,
+                role: user.role,
+                position: user.positionId ? { id: user.positionId, name: posData?.name } : null,
+                location: user.locationId ? { id: user.locationId, name: locData?.name } : null,
+                region: user.regionId ? { id: user.regionId, name: regData?.name } : null,
+                manager: managerName ? { name: managerName } : null,
+                isActive: user.isActive
+            };
+        }));
+
+        // Sort by name
+        joinedUsers.sort((a, b) => (a.name || '').localeCompare(b.name || ''));
+
+        return NextResponse.json(joinedUsers)
     } catch (error) {
+        console.error("Failed to fetch users:", error);
         return NextResponse.json({ error: 'Failed to fetch users' }, { status: 500 })
     }
 }
@@ -72,28 +109,36 @@ export async function POST(request: Request) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
-        const newUser = await prisma.user.create({
-            data: {
-                name,
-                email,
-                password, // In real app, hash this!
-                role: role || 'EMPLOYEE',
-                positionId: positionId || null,
-                locationId: locationId || null,
-                regionId: regionId || null,
-                managerId: managerId || null
-            }
-        })
+        const usersRef = adminDb.collection('users');
+
+        // Check uniqueness
+        const existing = await usersRef.where('email', '==', email).get();
+        if (!existing.empty) {
+            return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
+        }
+
+        const newDocRef = usersRef.doc();
+
+        const newUser = {
+            id: newDocRef.id,
+            name,
+            email,
+            password,
+            role: role || 'EMPLOYEE',
+            positionId: positionId || null,
+            locationId: locationId || null,
+            regionId: regionId || null,
+            managerId: managerId || null,
+            isActive: false,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
+
+        await newDocRef.set(newUser);
 
         return NextResponse.json(newUser)
     } catch (error: any) {
         console.error('Error creating user:', error)
-
-        // Handle Prisma unique constraint violation
-        if (error.code === 'P2002') {
-            return NextResponse.json({ error: 'Email already exists' }, { status: 400 })
-        }
-
         return NextResponse.json({ error: 'Failed to create user' }, { status: 500 })
     }
 }

@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { DocumentData } from 'firebase-admin/firestore'
 
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions)
@@ -14,40 +15,96 @@ export async function GET(request: Request) {
     const end = searchParams.get('end')
 
     try {
-        // Build where clause based on user role
-        const whereClause: any = {
-            ...(start && end ? {
-                startDate: { gte: new Date(start) },
-                endDate: { lte: new Date(end) }
-            } : {})
-        }
+        let requestsRef = adminDb.collection('requests');
+        let query: FirebaseFirestore.Query = requestsRef.orderBy('startDate', 'asc');
 
-        // If user is EMPLOYEE, only show their own requests
-        // If user is MANAGER or ADMIN, show all requests
         if (session.user.role === 'EMPLOYEE') {
-            whereClause.userId = session.user.id
+            query = query.where('userId', '==', session.user.id);
         }
 
-        const requests = await prisma.request.findMany({
-            where: whereClause,
-            include: {
-                user: {
-                    select: { name: true, email: true }
-                },
-                approvals: {
-                    include: {
-                        approver: {
-                            select: { name: true, email: true }
-                        }
-                    },
-                    orderBy: { createdAt: 'desc' },
-                    take: 1
+        // Date filtering in Firestore is tricky with inequality on multiple fields vs ordering.
+        // We are ordering by startDate. We can startAt/endAt if we want.
+        // Or fetch and filter in memory if volume is low.
+        // For accurate range, let's filter in memory for MVP to avoid index issues with multiple fields (status, userId, dates).
+        // (Composite indexes might be missing).
+
+        const snapshot = await query.get();
+        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+
+        // Filter dates in memory
+        if (start && end) {
+            const startDate = new Date(start);
+            const endDate = new Date(end);
+            requests = requests.filter(r => {
+                const s = r.startDate.toDate ? r.startDate.toDate() : new Date(r.startDate);
+                const e = r.endDate.toDate ? r.endDate.toDate() : new Date(r.endDate);
+                return s >= startDate && e <= endDate;
+            });
+        }
+
+        // Fetch User details for expansion (simulating include user)
+        // Also fetch Approvals
+        // This is N+1 if we are not careful.
+        // Optimization: Gather User IDs.
+        const userIds = new Set(requests.map(r => r.userId));
+        const usersRef = adminDb.collection('users');
+        // If many users, fetch all? Or individually?
+        // Let's fetch all active users map for caching.
+        // Actually, let's just fetch individual if small batch, or all if > 5. Assuming all for simplicity.
+        const allUsersSnap = await usersRef.get(); // Cache all users
+        const usersMap = new Map(allUsersSnap.docs.map(d => [d.id, d.data()]));
+
+        // Fetch Approvals for these requests
+        // Approvals have `requestId`.
+        // We can query approvals where requestId IN [...]. Firestore limits IN to 10.
+        // So fetch ALL approvals? Or just fetch approvals for each request individually?
+        // Query: approvalsRef.where('requestId', '==', r.id).orderBy('createdAt', 'desc').limit(1)
+        // Doing this in loop is slow.
+        // Better: Fetch all approvals (if reasonable size) or fetch by request logic efficiently.
+        // MVP: Loop with Promise.all (Parallel).
+
+        const enrichedRequests = await Promise.all(requests.map(async (r) => {
+            const user = usersMap.get(r.userId);
+
+            // Fetch approval
+            const approvalsQuery = await adminDb.collection('approvals')
+                .where('requestId', '==', r.id)
+                // .orderBy('createdAt', 'desc') // Requires index
+                .get();
+
+            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            approvals.sort((a, b) => {
+                const dA = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+                const dB = b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+                return dB.getTime() - dA.getTime();
+            });
+            const latestApproval = approvals[0];
+
+            let approver = null;
+            if (latestApproval && latestApproval.approverId) {
+                const approverUser = usersMap.get(latestApproval.approverId);
+                if (approverUser) {
+                    approver = { name: approverUser.name, email: approverUser.email };
                 }
-            },
-            orderBy: { startDate: 'asc' }
-        })
-        return NextResponse.json(requests)
+            }
+
+            return {
+                ...r,
+                startDate: r.startDate.toDate ? r.startDate.toDate() : r.startDate, // Ensure serializable
+                endDate: r.endDate.toDate ? r.endDate.toDate() : r.endDate,
+                createdAt: r.createdAt.toDate ? r.createdAt.toDate() : r.createdAt,
+                user: user ? { name: user.name, email: user.email } : null,
+                approvals: latestApproval ? [{
+                    ...latestApproval,
+                    createdAt: latestApproval.createdAt.toDate ? latestApproval.createdAt.toDate() : latestApproval.createdAt,
+                    approver: approver
+                }] : []
+            };
+        }));
+
+        return NextResponse.json(enrichedRequests)
     } catch (error) {
+        console.error("Error fetching requests:", error);
         return NextResponse.json({ error: 'Failed to fetch requests' }, { status: 500 })
     }
 }
@@ -62,96 +119,104 @@ export async function POST(request: Request) {
         const body = await request.json()
         const { type, startDate, endDate, reason, justification, requestLat, requestLong } = body
 
-        // Basic validation
         if (!type || !startDate || !endDate || !reason) {
             return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
         }
 
-        // Get user's position to determine approval flow
-        const user = await prisma.user.findUnique({
-            where: { id: session.user.id },
-            include: { position: true }
-        })
-
-        if (!user) {
+        const usersRef = adminDb.collection('users');
+        const userDoc = await usersRef.doc(session.user.id).get();
+        if (!userDoc.exists) {
             return NextResponse.json({ error: 'User not found' }, { status: 404 })
         }
+        const userData = userDoc.data() as DocumentData;
 
-        // Determine next approver based on requester's position
+        // Fetch Position Name
+        let userPositionName = '';
+        if (userData.positionId) {
+            const posDoc = await adminDb.collection('positions').doc(userData.positionId).get();
+            if (posDoc.exists) userPositionName = posDoc.data()?.name || '';
+        }
+
+        // Hierarchy Logic
+        // Fetch all positions to find by name
+        const positionsSnap = await adminDb.collection('positions').get();
+        const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+
+        const gslPosition = positions.find(p => p.name.includes('GSL'));
+        const koordinatorPosition = positions.find(p => p.name.includes('Koordinator')); // Case sensitive? 'Koordinator'
+        const managerPosition = positions.find(p => p.name === 'Manager');
+
         let nextApproverPositionId: string | null = null
         let currentApprovalLevel = 0
 
-        // Get position IDs for approval hierarchy
-        const gslPosition = await prisma.position.findFirst({ where: { name: { contains: 'GSL' } } })
-        const koordinatorPosition = await prisma.position.findFirst({ where: { name: { contains: 'Koordinator' } } })
-        const managerPosition = await prisma.position.findFirst({ where: { name: 'Manager' } })
-
-        const userPositionName = user.position?.name || ''
-
         if (userPositionName.includes('SOS')) {
-            // SOS → GSL → Koordinator → Manager
             nextApproverPositionId = gslPosition?.id || null
             currentApprovalLevel = 1
         } else if (userPositionName.includes('GSL')) {
-            // GSL → Koordinator → Manager
             nextApproverPositionId = koordinatorPosition?.id || null
             currentApprovalLevel = 2
         } else if (userPositionName.toLowerCase().includes('koordinator')) {
-            // Koordinator → Manager
             nextApproverPositionId = managerPosition?.id || null
             currentApprovalLevel = 3
         } else {
-            // Other positions → Manager directly
+            // Default to Manager
             nextApproverPositionId = managerPosition?.id || null
             currentApprovalLevel = 3
         }
 
-        const newRequest = await prisma.request.create({
-            data: {
-                userId: session.user.id,
-                type,
-                startDate: new Date(startDate),
-                endDate: new Date(endDate),
-                reason,
-                justification: justification || null,
-                requestLat: requestLat || null,
-                requestLong: requestLong || null,
-                status: 'PENDING',
-                nextApproverPositionId,
-                currentApprovalLevel
-            }
-        })
+        const requestsRef = adminDb.collection('requests');
+        const newDocRef = requestsRef.doc();
+        const newRequest = {
+            id: newDocRef.id,
+            userId: session.user.id,
+            type,
+            startDate: new Date(startDate),
+            endDate: new Date(endDate),
+            reason,
+            justification: justification || null,
+            requestLat: requestLat || null,
+            requestLong: requestLong || null,
+            status: 'PENDING',
+            nextApproverPositionId,
+            currentApprovalLevel,
+            createdAt: new Date(),
+            updatedAt: new Date()
+        };
 
-        // Check duration and notify manager if exceeded
+        await newDocRef.set(newRequest);
+
+        // Check duration logic
         const start = new Date(startDate)
         const end = new Date(endDate)
         const durationDays = Math.ceil((end.getTime() - start.getTime()) / (1000 * 60 * 60 * 24)) + 1
 
         const settingKey = type === 'ONSITE' ? 'MAX_ONSITE_DAYS' : 'MAX_OFFSITE_DAYS'
-        const setting = await prisma.setting.findUnique({ where: { key: settingKey } })
+        let settingValue = 0;
 
-        if (setting && durationDays > parseInt(setting.value)) {
-            // Get user's manager
-            const user = await prisma.user.findUnique({
-                where: { id: session.user.id },
-                select: { managerId: true, name: true }
-            })
+        const settingsSnap = await adminDb.collection('settings').where('key', '==', settingKey).limit(1).get();
+        if (!settingsSnap.empty) {
+            settingValue = parseInt(settingsSnap.docs[0].data().value);
+        }
 
-            if (user && user.managerId) {
-                await prisma.notification.create({
-                    data: {
-                        userId: user.managerId,
-                        type: 'DURATION_EXCEEDED',
-                        title: 'Durasi Pengajuan Melebihi Batas',
-                        message: `Pengajuan ${type} oleh ${user.name} selama ${durationDays} hari melebihi batas ${setting.value} hari.`,
-                        relatedId: newRequest.id
-                    }
-                })
+        if (settingValue > 0 && durationDays > settingValue) {
+            if (userData.managerId) {
+                // Create Notification
+                const notification = {
+                    userId: userData.managerId,
+                    type: 'DURATION_EXCEEDED',
+                    title: 'Durasi Pengajuan Melebihi Batas',
+                    message: `Pengajuan ${type} oleh ${userData.name} selama ${durationDays} hari melebihi batas ${settingValue} hari.`,
+                    relatedId: newRequest.id,
+                    isRead: false,
+                    createdAt: new Date()
+                };
+                await adminDb.collection('notifications').add(notification);
             }
         }
 
         return NextResponse.json(newRequest)
     } catch (error) {
+        console.error("Error creating request:", error);
         return NextResponse.json({ error: 'Failed to create request' }, { status: 500 })
     }
 }

@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
@@ -10,16 +10,17 @@ export async function GET(request: Request) {
     }
 
     try {
-        const settings = await prisma.setting.findMany()
+        const settingsRef = adminDb.collection('settings');
+        const snapshot = await settingsRef.get();
+        const settings = snapshot.docs.map(doc => doc.data());
 
-        // Convert to key-value object for easier use
-        const settingsObj = settings.reduce((acc, setting) => {
+        const settingsObj = settings.reduce((acc: any, setting: any) => {
             acc[setting.key] = {
                 value: setting.value,
                 description: setting.description
             }
             return acc
-        }, {} as Record<string, { value: string, description: string | null }>)
+        }, {})
 
         return NextResponse.json(settingsObj)
     } catch (error) {
@@ -30,8 +31,6 @@ export async function GET(request: Request) {
 
 export async function PUT(request: Request) {
     const session = await getServerSession(authOptions)
-
-    // Only ADMIN can update settings
     if (!session || session.user.role !== 'ADMIN') {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -40,16 +39,45 @@ export async function PUT(request: Request) {
         const body = await request.json()
         const { settings } = body // { key: value }
 
-        // Update each setting
-        const updates = Object.entries(settings).map(([key, value]) =>
-            prisma.setting.upsert({
-                where: { key },
-                update: { value: value as string },
-                create: { key, value: value as string }
-            })
-        )
+        const batch = adminDb.batch();
+        const settingsRef = adminDb.collection('settings');
 
-        await Promise.all(updates)
+        // We need to upsert.
+        // Since we don't know IDs, we query by key?
+        // Best practice: Use 'key' as Document ID for settings!
+        // But migration might have used auto-IDs or CUIDs?
+        // Let's check migration.
+        // Migration: `migrateCollection('Setting', 'settings')`.
+        // Prisma `Setting`: `id String @id`, `key String @unique`.
+        // So docs have IDs. But key is unique.
+        // To query by key efficiently we need index.
+        // Or we can just read all settings, find matches, and update.
+        // Settings are small (MAX_ONSITE, MAX_OFFSITE).
+
+        const allSettingsSnap = await settingsRef.get();
+        const existingSettingsMap = new Map();
+        allSettingsSnap.docs.forEach(d => existingSettingsMap.set(d.data().key, d.ref));
+
+        for (const [key, value] of Object.entries(settings)) {
+            if (existingSettingsMap.has(key)) {
+                // Update
+                batch.update(existingSettingsMap.get(key), { value: String(value) });
+            } else {
+                // Create
+                const newRef = settingsRef.doc();
+                // Emulate schema: id, key, value, description
+                batch.set(newRef, {
+                    id: newRef.id,
+                    key,
+                    value: String(value),
+                    description: null, // Default
+                    createdAt: new Date(),
+                    updatedAt: new Date()
+                });
+            }
+        }
+
+        await batch.commit();
 
         return NextResponse.json({ success: true })
     } catch (error) {

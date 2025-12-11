@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
@@ -16,22 +16,23 @@ export async function PATCH(
         const { id } = await params
         const { isRead } = await request.json()
 
-        // Verify ownership
-        const notification = await prisma.notification.findUnique({
-            where: { id }
-        })
+        const notifRef = adminDb.collection('notifications').doc(id);
+        const doc = await notifRef.get();
 
-        if (!notification || notification.userId !== session.user.id) {
-            return NextResponse.json({ error: 'Not found or unauthorized' }, { status: 404 })
+        if (!doc.exists) {
+            return NextResponse.json({ error: 'Not found' }, { status: 404 })
         }
 
-        const updated = await prisma.notification.update({
-            where: { id },
-            data: { isRead }
-        })
+        const data = doc.data();
+        if (data?.userId !== session.user.id) {
+            return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+        }
 
-        return NextResponse.json(updated)
+        await notifRef.update({ isRead });
+
+        return NextResponse.json({ id, ...data, isRead })
     } catch (error) {
+        console.error("Error updating notification:", error);
         return NextResponse.json({ error: 'Failed to update notification' }, { status: 500 })
     }
 }

@@ -1,15 +1,13 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
 
-export async function PATCH(
+export async function POST(
     request: Request,
     { params }: { params: Promise<{ id: string }> }
 ) {
     const session = await getServerSession(authOptions)
-
-    // Only ADMIN and MANAGER can activate accounts
     if (!session || (session.user.role !== 'ADMIN' && session.user.role !== 'MANAGER')) {
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
@@ -19,25 +17,16 @@ export async function PATCH(
         const body = await request.json()
         const { isActive } = body
 
-        const updatedUser = await prisma.user.update({
-            where: { id },
-            data: { isActive },
-            select: {
-                id: true,
-                name: true,
-                email: true,
-                isActive: true,
-            }
-        })
+        const userRef = adminDb.collection('users').doc(id);
 
-        return NextResponse.json(updatedUser)
-    } catch (error: any) {
-        console.error('Error updating user activation status:', error)
+        await userRef.update({
+            isActive: isActive,
+            updatedAt: new Date()
+        });
 
-        if (error.code === 'P2025') {
-            return NextResponse.json({ error: 'User not found' }, { status: 404 })
-        }
-
-        return NextResponse.json({ error: 'Failed to update activation status' }, { status: 500 })
+        return NextResponse.json({ success: true })
+    } catch (error) {
+        console.error('Error activating user:', error)
+        return NextResponse.json({ error: 'Failed to update user status' }, { status: 500 })
     }
 }

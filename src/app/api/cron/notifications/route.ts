@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 
 export async function GET(request: Request) {
     try {
@@ -7,94 +7,111 @@ export async function GET(request: Request) {
         const now = new Date()
 
         // 1. Get Settings for limits
-        const maxOnsiteSetting = await prisma.setting.findUnique({ where: { key: 'MAX_ONSITE_DAYS' } })
-        const maxOffsiteSetting = await prisma.setting.findUnique({ where: { key: 'MAX_OFFSITE_DAYS' } })
+        let maxOnsiteDays = 14;
+        let maxOffsiteDays = 14;
 
-        const maxOnsiteDays = maxOnsiteSetting ? parseInt(maxOnsiteSetting.value) : 14
-        const maxOffsiteDays = maxOffsiteSetting ? parseInt(maxOffsiteSetting.value) : 14
+        const settingsSnap = await adminDb.collection('settings').get();
+        const settingsMap = new Map(settingsSnap.docs.map(d => [d.data().key, d.data().value]));
 
-        // 2. Get Active Requests (Approved and currently active)
-        const activeRequests = await prisma.request.findMany({
-            where: {
-                status: 'APPROVED',
-                startDate: { lte: now },
-                endDate: { gte: now }
-            },
-            include: {
-                user: {
-                    select: {
-                        id: true,
-                        name: true,
-                        email: true,
-                        position: { select: { name: true } }
-                    }
-                }
-            }
-        })
+        if (settingsMap.has('MAX_ONSITE_DAYS')) maxOnsiteDays = parseInt(settingsMap.get('MAX_ONSITE_DAYS'));
+        if (settingsMap.has('MAX_OFFSITE_DAYS')) maxOffsiteDays = parseInt(settingsMap.get('MAX_OFFSITE_DAYS'));
+
+        // 2. Get Active Requests
+        // Status APPROVED, Date covers 'now'
+        // Firestore query for date overlap is hard.
+        // We'll fetch 'APPROVED' requests where endDate >= now.
+        // Then filter startDate <= now in memory.
+        const requestsRef = adminDb.collection('requests');
+        const activeRequestsSnap = await requestsRef
+            .where('status', '==', 'APPROVED')
+            .where('endDate', '>=', now)
+            .get();
+
+        const activeRequests = activeRequestsSnap.docs
+            .map(doc => ({ id: doc.id, ...doc.data() as any }))
+            .filter(req => {
+                const s = req.startDate.toDate ? req.startDate.toDate() : new Date(req.startDate);
+                return s <= now;
+            });
+
+        // Need User details for these requests
+        // Optimization: Fetch all users map
+        const usersSnap = await adminDb.collection('users').get();
+        const usersMap = new Map(usersSnap.docs.map(d => [d.id, d.data()]));
 
         // 3. Get Target Users for Notifications (Admin, Manager, Koordinator)
-        const targetUsers = await prisma.user.findMany({
-            where: {
-                OR: [
-                    { role: 'ADMIN' },
-                    { role: 'MANAGER' },
-                    { position: { name: { contains: 'Koordinator' } } }
-                ]
-            },
-            select: { id: true }
-        })
+        // We can iterate all users and check roles
+        const targetUsers = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })).filter(u =>
+            u.role === 'ADMIN' ||
+            u.role === 'MANAGER' ||
+            (u.positionId && false) // Logic for 'Koordinator' position check requires position name
+        );
+        // Need to check position names for Koordinator.
+        // Fetch positions
+        const positionsSnap = await adminDb.collection('positions').get();
+        const positionsMap = new Map(positionsSnap.docs.map(d => [d.id, d.data()]));
+
+        // Re-filter with position names
+        const finalTargetUsers = usersSnap.docs.map(doc => ({ id: doc.id, ...doc.data() as any })).filter(u => {
+            if (u.role === 'ADMIN' || u.role === 'MANAGER') return true;
+            if (u.positionId) {
+                const posName = positionsMap.get(u.positionId)?.name || '';
+                if (posName.includes('Koordinator')) return true;
+            }
+            return false;
+        });
 
         let notificationsCreated = 0
 
         for (const req of activeRequests) {
-            const start = new Date(req.startDate)
+            const start = req.startDate.toDate ? req.startDate.toDate() : new Date(req.startDate);
             const diffTime = Math.abs(now.getTime() - start.getTime())
-            const durationSoFar = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1 // +1 because start date counts as day 1
+            const durationSoFar = Math.ceil(diffTime / (1000 * 60 * 60 * 24)) + 1
 
             const limit = req.type === 'ONSITE' ? maxOnsiteDays : maxOffsiteDays
             const daysRemaining = limit - durationSoFar
 
-            let notificationType: 'DURATION_EXCEEDED' | 'DURATION_WARNING' | null = null
+            let notificationType = null
             let title = ''
             let message = ''
 
+            const reqUser = usersMap.get(req.userId);
+            const reqUserName = reqUser?.name || 'Unknown';
+
             if (durationSoFar > limit) {
                 notificationType = 'DURATION_EXCEEDED'
-                title = `⚠️ Batas Durasi Terlampaui: ${req.user.name}`
-                message = `${req.user.name} (${req.type}) telah melewati batas durasi ${limit} hari. Durasi saat ini: ${durationSoFar} hari.`
+                title = `⚠️ Batas Durasi Terlampaui: ${reqUserName}`
+                message = `${reqUserName} (${req.type}) telah melewati batas durasi ${limit} hari. Durasi saat ini: ${durationSoFar} hari.`
             } else if (daysRemaining <= 3 && daysRemaining >= 0) {
                 notificationType = 'DURATION_WARNING'
-                title = `⚠️ Peringatan Batas Durasi: ${req.user.name}`
-                message = `${req.user.name} (${req.type}) mendekati batas durasi. Sisa waktu: ${daysRemaining} hari.`
+                title = `⚠️ Peringatan Batas Durasi: ${reqUserName}`
+                message = `${reqUserName} (${req.type}) mendekati batas durasi. Sisa waktu: ${daysRemaining} hari.`
             }
 
             if (notificationType) {
-                // Check if similar notification exists created in last 24 hours to avoid spam
-                const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000)
+                const yesterday = new Date(now.getTime() - 24 * 60 * 60 * 1000);
 
-                // For each target user, check and create notification
-                for (const targetUser of targetUsers) {
-                    const existingNotif = await prisma.notification.findFirst({
-                        where: {
+                for (const targetUser of finalTargetUsers) {
+                    // Check duplicate
+                    const notifSnap = await adminDb.collection('notifications')
+                        .where('userId', '==', targetUser.id)
+                        .where('relatedId', '==', req.id)
+                        .where('type', '==', notificationType)
+                        .where('createdAt', '>=', yesterday)
+                        .limit(1)
+                        .get();
+
+                    if (notifSnap.empty) {
+                        await adminDb.collection('notifications').add({
                             userId: targetUser.id,
-                            relatedId: req.id,
                             type: notificationType,
-                            createdAt: { gte: yesterday }
-                        }
-                    })
-
-                    if (!existingNotif) {
-                        await prisma.notification.create({
-                            data: {
-                                userId: targetUser.id,
-                                type: notificationType,
-                                title,
-                                message,
-                                relatedId: req.id,
-                                isRead: false
-                            }
-                        })
-                        notificationsCreated++
+                            title,
+                            message,
+                            relatedId: req.id,
+                            isRead: false,
+                            createdAt: new Date()
+                        });
+                        notificationsCreated++;
                     }
                 }
             }

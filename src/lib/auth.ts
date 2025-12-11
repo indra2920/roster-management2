@@ -1,6 +1,6 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { prisma } from "@/lib/prisma"
+import { adminDb } from "@/lib/firebase-admin"
 
 export const authOptions: NextAuthOptions = {
     providers: [
@@ -15,34 +15,50 @@ export const authOptions: NextAuthOptions = {
                     return null
                 }
 
-                const user = await prisma.user.findUnique({
-                    where: { email: credentials.email },
-                    include: {
-                        position: { select: { name: true } }
+                try {
+                    // Query Firestore for user by email
+                    const usersRef = adminDb.collection('users');
+                    const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
+
+                    if (snapshot.empty) {
+                        return null;
                     }
-                })
 
-                if (!user) {
-                    return null
-                }
+                    const userDoc = snapshot.docs[0];
+                    const user = userDoc.data();
+                    const userId = userDoc.id; // Use Doc ID as User ID
 
-                // Check if user is active
-                if (!user.isActive) {
-                    throw new Error('Akun Anda belum diaktifkan oleh manager')
-                }
-
-                // In a real app, use bcrypt.compare
-                if (user.password === credentials.password) {
-                    return {
-                        id: user.id,
-                        name: user.name,
-                        email: user.email,
-                        role: user.role,
-                        positionId: user.positionId,
-                        positionName: user.position?.name,
-                        locationId: user.locationId,
-                        regionId: user.regionId,
+                    // Check if user is active
+                    if (!user.isActive) {
+                        throw new Error('Akun Anda belum diaktifkan oleh manager')
                     }
+
+                    // Verify password (in real app use bcrypt)
+                    if (user.password === credentials.password) {
+
+                        // Fetch Position Name manually if positionId exists
+                        let positionName = undefined;
+                        if (user.positionId) {
+                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
+                            if (positionDoc.exists) {
+                                positionName = positionDoc.data()?.name;
+                            }
+                        }
+
+                        return {
+                            id: userId,
+                            name: user.name,
+                            email: user.email,
+                            role: user.role,
+                            positionId: user.positionId,
+                            positionName: positionName,
+                            locationId: user.locationId,
+                            regionId: user.regionId,
+                        }
+                    }
+                } catch (error) {
+                    console.error("Auth Error:", error);
+                    return null;
                 }
 
                 return null

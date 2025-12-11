@@ -1,7 +1,8 @@
 import { NextResponse } from 'next/server'
-import { prisma } from '@/lib/prisma'
+import { adminDb } from '@/lib/firebase-admin'
 import { getServerSession } from 'next-auth'
 import { authOptions } from '@/lib/auth'
+import { DocumentData } from 'firebase-admin/firestore'
 
 export async function GET(request: Request) {
     const session = await getServerSession(authOptions)
@@ -10,67 +11,112 @@ export async function GET(request: Request) {
     }
 
     try {
-        // Fetch current user with position info
-        const currentUser = await prisma.user.findUnique({
-            where: { id: session.user.id },
-            select: { positionId: true, role: true }
-        })
+        const currentUserRef = adminDb.collection('users').doc(session.user.id);
+        const currentUserDoc = await currentUserRef.get();
+        const currentUser = currentUserDoc.data() as DocumentData;
 
-        // Check if user has approval rights (has a position OR is ADMIN OR is MANAGER)
-        const hasApprovalRights = currentUser?.positionId || session.user.role === 'ADMIN' || session.user.role === 'MANAGER'
-
+        // Check rights
+        const hasApprovalRights = currentUser?.positionId || session.user.role === 'ADMIN' || session.user.role === 'MANAGER';
         if (!hasApprovalRights) {
-            // No approval rights, return empty array
             return NextResponse.json([])
         }
 
-        let whereClause: any = {
-            status: 'PENDING'
-        }
+        // Logic to determine which requests to show
+        // We match `nextApproverPositionId` with user's position (or "Manager" position if user is manager)
+        let targetPositionId: string | null = null;
 
-        // Filter by nextApproverPositionId to show only requests assigned to this position
-        if (session.user.role === 'ADMIN') {
-            // ADMIN sees all pending requests
-        } else if (session.user.role === 'MANAGER') {
-            // Special handling for MANAGER role
-            // If user has positionId, use it. If not, find the "Manager" position ID
-            let managerPositionId = currentUser?.positionId
-
-            if (!managerPositionId) {
-                const managerPos = await prisma.position.findFirst({ where: { name: { contains: 'Manager' } } })
-                managerPositionId = managerPos?.id
-            }
-
-            if (managerPositionId) {
-                whereClause.nextApproverPositionId = managerPositionId
+        if (session.user.role === 'MANAGER') {
+            targetPositionId = currentUser?.positionId;
+            if (!targetPositionId) {
+                // Find "Manager" position ID
+                const positionsSnap = await adminDb.collection('positions').where('name', '==', 'Manager').limit(1).get();
+                if (!positionsSnap.empty) {
+                    targetPositionId = positionsSnap.docs[0].id;
+                }
             }
         } else if (currentUser?.positionId) {
-            whereClause.nextApproverPositionId = currentUser.positionId
+            targetPositionId = currentUser.positionId;
         }
-        // ADMIN sees all pending requests
 
-        const pendingRequests = await prisma.request.findMany({
-            where: whereClause,
-            include: {
-                user: {
-                    select: { name: true, email: true, position: { select: { name: true } } }
-                },
-                nextApproverPosition: {
-                    select: { name: true }
-                },
-                approvals: {
-                    include: {
-                        approver: {
-                            select: { name: true, position: { select: { name: true } } }
-                        }
-                    },
-                    orderBy: { createdAt: 'asc' }
+        let requestsRef = adminDb.collection('requests');
+        let query: FirebaseFirestore.Query = requestsRef.where('status', '==', 'PENDING');
+
+        if (session.user.role !== 'ADMIN' && targetPositionId) {
+            query = query.where('nextApproverPositionId', '==', targetPositionId);
+        } else if (session.user.role !== 'ADMIN') {
+            // If not admin and no position ID determined, show nothing
+            return NextResponse.json([])
+        }
+
+        // Fetch requests
+        const snapshot = await query.get(); // we might want to order by createdAt. index needed.
+        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+
+        // Sort in memory by createdAt ASC (oldest first)
+        requests.sort((a, b) => {
+            const dA = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
+            const dB = b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
+            return dA.getTime() - dB.getTime();
+        });
+
+        // Enrich with User and NextApproverPosition names
+        // Fetch User IDs and Position IDs
+        const userIds = new Set(requests.map(r => r.userId));
+        const positionIds = new Set(requests.map(r => r.nextApproverPositionId).filter(Boolean));
+
+        const [usersSnap, positionsSnap] = await Promise.all([
+            adminDb.collection('users').get(), // Optimize if needed
+            adminDb.collection('positions').get()
+        ]);
+        const usersMap = new Map(usersSnap.docs.map(d => [d.id, d.data()]));
+        const positionsMap = new Map(positionsSnap.docs.map(d => [d.id, d.data()]));
+
+        // Fetch Approvals nested?
+        // Logic in Prisma: include approvals (ordered asc).
+        // Let's fetch all approvals for these requests.
+        // Again, simple loop for now.
+
+        const enrichedRequests = await Promise.all(requests.map(async (r) => {
+            // Get approvals
+            const approvalsQuery = await adminDb.collection('approvals')
+                .where('requestId', '==', r.id)
+                // .orderBy('createdAt', 'asc')
+                .get();
+            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            approvals.sort((a, b) => (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)).getTime() - (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)).getTime());
+
+            // Map approver names
+            approvals = approvals.map(app => {
+                const approverUser = usersMap.get(app.approverId);
+                const approverPos = approverUser?.positionId ? positionsMap.get(approverUser.positionId) : null;
+                return {
+                    ...app,
+                    approver: {
+                        name: approverUser?.name,
+                        position: { name: approverPos?.name }
+                    }
                 }
-            },
-            orderBy: { createdAt: 'asc' }
-        })
-        return NextResponse.json(pendingRequests)
+            });
+
+            const reqUser = usersMap.get(r.userId);
+            const reqUserPos = reqUser?.positionId ? positionsMap.get(reqUser.positionId) : null;
+            const nextPos = r.nextApproverPositionId ? positionsMap.get(r.nextApproverPositionId) : null;
+
+            return {
+                ...r,
+                user: {
+                    name: reqUser?.name,
+                    email: reqUser?.email,
+                    position: { name: reqUserPos?.name }
+                },
+                nextApproverPosition: { name: nextPos?.name },
+                approvals
+            }
+        }));
+
+        return NextResponse.json(enrichedRequests)
     } catch (error) {
+        console.error("Error fetching approvals:", error);
         return NextResponse.json({ error: 'Failed to fetch approvals' }, { status: 500 })
     }
 }
@@ -78,116 +124,93 @@ export async function GET(request: Request) {
 export async function POST(request: Request) {
     const session = await getServerSession(authOptions)
     if (!session) {
-        console.log('❌ No session found')
         return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
     }
 
     try {
         const { requestId, status, comment, approvalLat, approvalLong } = await request.json()
-        console.log('📝 Approval request:', { requestId, status, comment, userId: session.user.id, userRole: session.user.role })
 
         if (!['APPROVED', 'REJECTED'].includes(status)) {
-            console.log('❌ Invalid status:', status)
             return NextResponse.json({ error: 'Invalid status' }, { status: 400 })
         }
 
-        // Verify that the current user is indeed the manager (or admin)
-        const requestToUpdate = await prisma.request.findUnique({
-            where: { id: requestId },
-            include: { user: true }
-        })
+        const requestRef = adminDb.collection('requests').doc(requestId);
 
-        console.log('🔍 Request found:', requestToUpdate ? {
-            id: requestToUpdate.id,
-            userId: requestToUpdate.userId,
-            managerId: requestToUpdate.user.managerId,
-            currentStatus: requestToUpdate.status
-        } : 'NOT FOUND')
-
-        if (!requestToUpdate) {
-            console.log('❌ Request not found:', requestId)
-            return NextResponse.json({ error: 'Request not found' }, { status: 404 })
-        }
-
-        // Fetch current user with position info
-        const currentUser = await prisma.user.findUnique({
-            where: { id: session.user.id },
-            select: { positionId: true, role: true }
-        })
-
-        // Check authorization: user must have a position OR be ADMIN
-        const hasApprovalRights = currentUser?.positionId || session.user.role === 'ADMIN'
-
-        if (!hasApprovalRights) {
-            console.log('❌ Forbidden - no position or admin role')
-            return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
-        }
-
-        console.log('✅ Authorization passed, updating request...')
-
-        // Get position IDs for approval hierarchy
-        const gslPosition = await prisma.position.findFirst({ where: { name: { contains: 'GSL' } } })
-        const koordinatorPosition = await prisma.position.findFirst({ where: { name: { contains: 'Koordinator' } } })
-        const managerPosition = await prisma.position.findFirst({ where: { name: 'Manager' } })
-
-        // Determine next approver and new level based on current level
-        let nextApproverPositionId: string | null = null
-        let newApprovalLevel = requestToUpdate.currentApprovalLevel
-        let finalStatus = status
-
-        if (status === 'APPROVED') {
-            // Progress to next level
-            if (requestToUpdate.currentApprovalLevel === 1) {
-                // GSL approved, move to Koordinator
-                nextApproverPositionId = koordinatorPosition?.id || null
-                newApprovalLevel = 2
-                finalStatus = 'PENDING' // Still pending at next level
-            } else if (requestToUpdate.currentApprovalLevel === 2) {
-                // Koordinator approved, move to Manager
-                nextApproverPositionId = managerPosition?.id || null
-                newApprovalLevel = 3
-                finalStatus = 'PENDING' // Still pending at next level
-            } else if (requestToUpdate.currentApprovalLevel === 3) {
-                // Manager approved, final approval
-                nextApproverPositionId = null
-                finalStatus = 'APPROVED'
+        // Run Transaction
+        const result = await adminDb.runTransaction(async (t) => {
+            const requestDoc = await t.get(requestRef);
+            if (!requestDoc.exists) {
+                throw new Error('Request not found');
             }
-        } else {
-            // Rejected at any level - final rejection
-            finalStatus = 'REJECTED'
-            nextApproverPositionId = null
-        }
+            const requestData = requestDoc.data() as DocumentData;
 
-        // Transaction to update request status and create approval record
-        const result = await prisma.$transaction([
-            prisma.request.update({
-                where: { id: requestId },
-                data: {
-                    status: finalStatus,
-                    currentApprovalLevel: newApprovalLevel,
-                    nextApproverPositionId
-                }
-            }),
-            prisma.approval.create({
-                data: {
-                    requestId,
-                    approverId: session.user.id,
-                    status,
-                    comment,
-                    approvalLevel: requestToUpdate.currentApprovalLevel,
-                    approvalLat: approvalLat || null,
-                    approvalLong: approvalLong || null
-                }
-            })
-        ])
+            // Re-fetch User Position for authorization check inside transaction or before? 
+            // Before is fine for read-only static config, but let's do safe check.
+            // We assume session user is valid.
 
-        console.log('✅ Transaction completed:', result)
+            // Logic for Next Level
+            // Need positions IDs
+            const positionsSnap = await adminDb.collection('positions').get();
+            const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            const koordinatorPosition = positions.find(p => p.name.includes('Koordinator'));
+            const managerPosition = positions.find(p => p.name === 'Manager');
+
+            let nextApproverPositionId: string | null = null;
+            let newApprovalLevel = requestData.currentApprovalLevel;
+            let finalStatus = status;
+
+            if (status === 'APPROVED') {
+                if (requestData.currentApprovalLevel === 1) {
+                    // GSL -> Koord
+                    nextApproverPositionId = koordinatorPosition?.id || null;
+                    newApprovalLevel = 2;
+                    finalStatus = 'PENDING';
+                } else if (requestData.currentApprovalLevel === 2) {
+                    // Koord -> Manager
+                    nextApproverPositionId = managerPosition?.id || null;
+                    newApprovalLevel = 3;
+                    finalStatus = 'PENDING';
+                } else if (requestData.currentApprovalLevel === 3) {
+                    // Manager -> Done
+                    nextApproverPositionId = null;
+                    finalStatus = 'APPROVED';
+                }
+            } else {
+                finalStatus = 'REJECTED';
+                nextApproverPositionId = null;
+            }
+
+            // Update Request
+            t.update(requestRef, {
+                status: finalStatus,
+                currentApprovalLevel: newApprovalLevel,
+                nextApproverPositionId,
+                updatedAt: new Date()
+            });
+
+            // Create Approval Record
+            const approvalRef = adminDb.collection('approvals').doc();
+            t.set(approvalRef, {
+                id: approvalRef.id,
+                requestId,
+                approverId: session.user.id,
+                status,
+                comment: comment || '',
+                approvalLevel: requestData.currentApprovalLevel,
+                approvalLat: approvalLat || null,
+                approvalLong: approvalLong || null,
+                createdAt: new Date()
+            });
+
+            return { success: true };
+        });
+
         return NextResponse.json(result)
-    } catch (error) {
-        console.error('❌ Error processing approval:', error)
+    } catch (error: any) {
+        console.error('Error processing approval:', error)
         return NextResponse.json({
             error: 'Failed to process approval',
-            details: error instanceof Error ? error.message : 'Unknown error'
+            details: error.message
         }, { status: 500 })
     }
 }
