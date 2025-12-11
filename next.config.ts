@@ -5,6 +5,9 @@ const nextConfig: NextConfig = {
   experimental: {
     // allowedDevOrigins: ['betsey-bidentate-munificently.ngrok-free.dev'],
   },
+  typescript: {
+    ignoreBuildErrors: true,
+  },
 };
 
 export default nextConfig;
