@@ -50,7 +50,7 @@ export async function GET(request: Request) {
 
         // Fetch requests
         const snapshot = await query.get(); // we might want to order by createdAt. index needed.
-        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as Array<DocumentData & { id: string }>;
 
         // Sort in memory by createdAt ASC (oldest first)
         requests.sort((a, b) => {
@@ -82,7 +82,7 @@ export async function GET(request: Request) {
                 .where('requestId', '==', r.id)
                 // .orderBy('createdAt', 'asc')
                 .get();
-            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
             approvals.sort((a, b) => (a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt)).getTime() - (b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt)).getTime());
 
             // Map approver names
@@ -151,7 +151,7 @@ export async function POST(request: Request) {
             // Logic for Next Level
             // Need positions IDs
             const positionsSnap = await adminDb.collection('positions').get();
-            const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
             const koordinatorPosition = positions.find(p => p.name.includes('Koordinator'));
             const managerPosition = positions.find(p => p.name === 'Manager');
 

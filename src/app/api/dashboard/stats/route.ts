@@ -18,7 +18,7 @@ export async function GET(request: Request) {
         // 1. Fetch Users
         const usersRef = adminDb.collection('users');
         const usersSnapshot = await usersRef.get();
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
         // Filter users if Manager (subordinates only)
         // Optimization: In Firestore we can query this, but we need all users for "Locations" stats? 
@@ -35,7 +35,7 @@ export async function GET(request: Request) {
         // We fetch all because we need "All Time" stats.
         const requestsRef = adminDb.collection('requests');
         const requestsSnapshot = await requestsRef.get();
-        const allRequests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+        const allRequests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
         // Filter requests by relevant users
         // If Manager, only show requests from their subordinates

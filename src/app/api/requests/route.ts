@@ -29,7 +29,7 @@ export async function GET(request: Request) {
         // (Composite indexes might be missing).
 
         const snapshot = await query.get();
-        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() as DocumentData }));
+        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
         // Filter dates in memory
         if (start && end) {
@@ -72,7 +72,7 @@ export async function GET(request: Request) {
                 // .orderBy('createdAt', 'desc') // Requires index
                 .get();
 
-            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
             approvals.sort((a, b) => {
                 const dA = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
                 const dB = b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
@@ -140,7 +140,7 @@ export async function POST(request: Request) {
         // Hierarchy Logic
         // Fetch all positions to find by name
         const positionsSnap = await adminDb.collection('positions').get();
-        const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() as DocumentData }));
+        const positions = positionsSnap.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
 
         const gslPosition = positions.find(p => p.name.includes('GSL'));
         const koordinatorPosition = positions.find(p => p.name.includes('Koordinator')); // Case sensitive? 'Koordinator'
