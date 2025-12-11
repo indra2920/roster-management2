@@ -5,11 +5,19 @@ if (!getApps().length) {
     // 1. Priority: Manual Env Vars (Vercel / Production)
     if (process.env.FIREBASE_PRIVATE_KEY) {
         try {
+            // Sanitize Private Key:
+            // 1. Remove surrounding quotes if present (common copy-paste error)
+            let key = process.env.FIREBASE_PRIVATE_KEY;
+            if (key.startsWith('"') && key.endsWith('"')) {
+                key = key.slice(1, -1);
+            }
+            // 2. Replace escaped newlines with actual newlines
+            const privateKey = key.replace(/\\n/g, '\n');
+
             const serviceAccount: ServiceAccount = {
                 projectId: process.env.FIREBASE_PROJECT_ID,
                 clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
-                // Replace \n with actual newlines if stored as string literal
-                privateKey: process.env.FIREBASE_PRIVATE_KEY.replace(/\\n/g, '\n'),
+                privateKey: privateKey,
             };
 
             initializeApp({
