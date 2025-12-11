@@ -11,8 +11,12 @@ if (!getApps().length) {
             if (key.startsWith('"') && key.endsWith('"')) {
                 key = key.slice(1, -1);
             }
-            // 2. Replace escaped newlines with actual newlines
-            const privateKey = key.replace(/\\n/g, '\n');
+
+            // 2. Aggressive cleanup:
+            // - Replace escaped newlines with actual newlines
+            // - Remove carriage returns (\r) which can break PEM parsing
+            // - Trim leading/trailing whitespace
+            const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
             const serviceAccount: ServiceAccount = {
                 projectId: process.env.FIREBASE_PROJECT_ID,
@@ -26,6 +30,10 @@ if (!getApps().length) {
             console.log('Firebase Admin Initialized with Private Key');
         } catch (error) {
             console.error('Firebase Admin Init Error (Env):', error);
+            // Fail build immediately if env vars are present but invalid
+            if (process.env.NODE_ENV === 'production') {
+                throw error; // Let Next.js build fail with this specific error
+            }
         }
     }
     // 2. Fallback: GOOGLE_APPLICATION_CREDENTIALS (Local / Dev)
