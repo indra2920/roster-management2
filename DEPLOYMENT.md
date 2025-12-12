@@ -55,6 +55,24 @@ Di halaman konfigurasi "Configure Project":
     *   *Jika menggunakan Vercel Postgres*:
         *   Anda bisa klik tab "Storage" di menu kiri dashboard Vercel setelah project dibuat, lalu "Connect Store" -> "Create New" -> "Postgres". Vercel akan otomatis mengisi Environment Variables untuk Anda.
 
+    *   **Firebase Configuration (WAJIB)**:
+        *   Karena kita menggunakan Firebase Admin SDK, Anda **HARUS** menambahkan variabel berikut di Vercel:
+            *   `FIREBASE_PROJECT_ID`: Project ID dari Firebase Console.
+            *   `FIREBASE_CLIENT_EMAIL`: Client Email dari service account Firebase.
+            *   `FIREBASE_PRIVATE_KEY`: Private Key dari service account.
+        
+        > [!IMPORTANT]
+        > **Format Private Key**: Vercel sering bermasalah dengan karakter `\n` (newline) di environment variables.
+        > **Solusi Terbaik**: Encode private key Anda ke Base64 sebelum dimasukkan ke Vercel.
+        >
+        > Cara generate Base64 key:
+        > 1. Buka terminal di project ini.
+        > 2. Jalankan script yang sudah disediakan:
+        >    ```bash
+        >    npx tsx scripts/generate_base64_key.ts
+        >    ```
+        > 3.  Copy output string (yang panjang) dan paste ke value `FIREBASE_PRIVATE_KEY` di Vercel.
+
 ## Langkah 5: Deploy
 
 1.  Klik tombol **"Deploy"**.

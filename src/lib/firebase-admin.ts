@@ -1,12 +1,14 @@
 import { initializeApp, getApps, cert, ServiceAccount, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
+import { env } from '@/lib/env';
 
 if (!getApps().length) {
     // 1. Priority: Manual Env Vars (Vercel / Production)
-    if (process.env.FIREBASE_PRIVATE_KEY) {
+    // Accessing env.FIREBASE_PRIVATE_KEY triggers validation
+    if (env.FIREBASE_PRIVATE_KEY) {
         try {
             // Sanitize Private Key:
-            let key = process.env.FIREBASE_PRIVATE_KEY || "";
+            let key = env.FIREBASE_PRIVATE_KEY || "";
 
             // Handle Base64 encoded key (Safe for Vercel Env Vars)
             if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
@@ -29,8 +31,8 @@ if (!getApps().length) {
             const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
 
             const serviceAccount: ServiceAccount = {
-                projectId: process.env.FIREBASE_PROJECT_ID,
-                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                projectId: env.FIREBASE_PROJECT_ID,
+                clientEmail: env.FIREBASE_CLIENT_EMAIL,
                 privateKey: privateKey,
             };
 
