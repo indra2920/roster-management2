@@ -26,8 +26,8 @@ export default function RequestForm() {
                     const onsiteData = await onsiteRes.json()
                     const offsiteData = await offsiteRes.json()
                     setMaxDays({
-                        ONSITE: parseInt(onsiteData.value),
-                        OFFSITE: parseInt(offsiteData.value)
+                        ONSITE: onsiteData?.value ? parseInt(onsiteData.value) : 5,
+                        OFFSITE: offsiteData?.value ? parseInt(offsiteData.value) : 14
                     })
                 }
             } catch (error) {

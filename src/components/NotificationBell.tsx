@@ -42,7 +42,12 @@ export default function NotificationBell() {
             const res = await fetch('/api/notifications')
             if (res.ok) {
                 const data = await res.json()
-                setNotifications(data)
+                if (Array.isArray(data)) {
+                    setNotifications(data)
+                } else {
+                    console.error("Invalid notifications format:", data)
+                    setNotifications([])
+                }
             }
         } catch (error) {
             console.error('Failed to fetch notifications', error)
