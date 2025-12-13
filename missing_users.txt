@@ -1,0 +1,4 @@
+--- USERS MISSING DATA ---
+1. Admin User (admin@example.com) - Belum ada: Jabatan, Lokasi
+2. Manager User (manager@example.com) - Belum ada: Lokasi
+3. Employee User (employee@example.com) - Belum ada: Jabatan, Lokasi
