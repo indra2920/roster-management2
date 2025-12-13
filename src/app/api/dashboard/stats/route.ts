@@ -31,18 +31,40 @@ export async function GET(request: Request) {
 
         const relevantUserIds = new Set(relevantUsers.map(u => u.id));
 
-        // 2. Fetch All Requests
-        // We fetch all because we need "All Time" stats.
-        const requestsRef = adminDb.collection('requests');
-        const requestsSnapshot = await requestsRef.get();
-        const allRequests = requestsSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        // 2. Optimized Request Fetching
+        // Instead of fetching ALL requests, we fetch only what's needed for the dashboard.
+        // - Recent (Last 6 Months): For trends, distribution, and approved counts.
+        // - Pending (All): For the "Pending" counter and list.
+        // - Active (Future/Current): For "Active Personnel".
 
-        // Filter requests by relevant users
-        // If Manager, only show requests from their subordinates
-        // If Admin, show all
-        const relevantRequests = isManager
-            ? allRequests.filter(r => relevantUserIds.has(r.userId))
-            : allRequests;
+        const sixMonthsAgo = new Date();
+        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
+        sixMonthsAgo.setDate(1);
+
+        const requestsRef = adminDb.collection('requests');
+
+        const [recentSnap, pendingSnap, activeSnap] = await Promise.all([
+            // Recent requests (last 6 months)
+            requestsRef.where('createdAt', '>=', sixMonthsAgo).get(),
+            // All Pending requests
+            requestsRef.where('status', '==', 'PENDING').get(),
+            // Future/Active requests (EndDate >= Now)
+            // Note: This relies on 'endDate' being comparable. 
+            // If composite index issues arise, client might need to add index link from console.
+            requestsRef.where('endDate', '>=', now).get()
+        ]);
+
+        const recentRequests = recentSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const pendingRequestsList = pendingSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const potentialActiveRequests = activeSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+
+        // Filter by relevant users (if Manager)
+        const filterByManager = (reqs: any[]) => isManager ? reqs.filter(r => relevantUserIds.has(r.userId)) : reqs;
+
+        const filteredRecent = filterByManager(recentRequests);
+        const filteredPending = filterByManager(pendingRequestsList);
+        const filteredActive = filterByManager(potentialActiveRequests);
+
 
         // --- Aggregations ---
 
@@ -50,44 +72,36 @@ export async function GET(request: Request) {
         const totalEmployees = relevantUsers.filter(u => u.isActive && u.role === 'EMPLOYEE').length;
 
         // 2. Pending Requests
-        const pendingRequests = relevantRequests.filter(r => r.status === 'PENDING').length;
+        const pendingRequests = filteredPending.length;
 
         // 3. Approved Requests (Current Month)
         const firstDayOfMonth = new Date(now.getFullYear(), now.getMonth(), 1);
-        const approvedRequests = relevantRequests.filter(r =>
+        const approvedRequests = filteredRecent.filter(r =>
             r.status === 'APPROVED' &&
-            // In Firestore dates are Timestamps, need conversion if not auto-converted? 
-            // Migration converted them to Date objects or Timestamps. 
-            // Admin SDK returns Timestamps usually.
             new Date(r.createdAt.toDate ? r.createdAt.toDate() : r.createdAt) >= firstDayOfMonth
         ).length;
-        // Note: Logic in Prisma was 'approval.count'. Wait, 'approval' table is separate in Prisma.
-        // In migration, did we keep approvals separate? Yes 'approvals' collection.
-        // Prisma: `prisma.approval.count({ where: { status: 'APPROVED', createdAt: ... } })`
-        // Should we query approvals collection? 
-        // The Prisma code counts 'approvals' not requests.
-        // But logic seems to imply "Requests that were approved". 
-        // Let's stick to `requests` status for simplicity and robustness if 'approvals' is just a log.
-        // Actually, let's replicate accurately.
-        // Fetch approvals?
-        // Let's fetch approvals if strictly needed. 
-        // If we look at Prisma code: `prisma.approval.count(...)`.
-        // Let's simplify: Count REQUESTS with status APPROVED created/updated recently?
-        // No, adherence to original: "Approved Requests (Current Month)".
-        // I will use `relevantRequests.filter(r => r.status === 'APPROVED' && r.updatedAt >= firstDayOfMonth)` as a proxy.
-        // It's close enough for 99% of cases.
 
-        // 4. Requests by Type
-        const onsiteCount = relevantRequests.filter(r => r.type === 'ONSITE').length;
-        const offsiteCount = relevantRequests.filter(r => r.type === 'OFFSITE').length;
+        // 4. Requests by Type (Based on Recent Data for Relevance)
+        // Merging recent + pending for a "Current View"? 
+        // Or just using Recent? Using Recent (Last 6 Months) + Pending represents "Active Window".
+        // Let's rely on filteredRecent which includes Approved/Rejected/Pending from last 6 months.
+        // But we should also include older Pending? 
+        // Let's combine unique IDs from filteredRecent and filteredPending for general stats to cover "Active concerns" + "Recent History".
 
-        // 5. Requests by Status
-        const approvedCount = relevantRequests.filter(r => r.status === 'APPROVED').length;
-        const rejectedCount = relevantRequests.filter(r => r.status === 'REJECTED').length;
-        const pendingCount = relevantRequests.filter(r => r.status === 'PENDING').length;
+        const workingSetMap = new Map();
+        filteredRecent.forEach(r => workingSetMap.set(r.id, r));
+        filteredPending.forEach(r => workingSetMap.set(r.id, r));
+        const workingSet = Array.from(workingSetMap.values());
+
+        const onsiteCount = workingSet.filter(r => r.type === 'ONSITE').length;
+        const offsiteCount = workingSet.filter(r => r.type === 'OFFSITE').length;
+
+        // 5. Requests by Status (From Working Set)
+        const approvedCount = workingSet.filter(r => r.status === 'APPROVED').length;
+        const rejectedCount = workingSet.filter(r => r.status === 'REJECTED').length;
+        const pendingCount = workingSet.filter(r => r.status === 'PENDING').length;
 
         // 6. Active Personnel (Currently Onsite/Offsite)
-        // Need to join User data
         const calculateDuration = (startDate: any) => {
             const start = new Date(startDate.toDate ? startDate.toDate() : startDate)
             const diffTime = Math.abs(now.getTime() - start.getTime())
@@ -95,7 +109,7 @@ export async function GET(request: Request) {
             return diffDays
         }
 
-        const activePersonnelRequests = relevantRequests.filter(r => {
+        const activePersonnelRequests = filteredActive.filter(r => {
             if (r.status !== 'APPROVED') return false;
             const start = new Date(r.startDate.toDate ? r.startDate.toDate() : r.startDate);
             const end = new Date(r.endDate.toDate ? r.endDate.toDate() : r.endDate);
@@ -107,7 +121,7 @@ export async function GET(request: Request) {
         });
 
         const mapPersonnel = (reqs: DocumentData[]) => reqs.map(req => {
-            const user = users.find(u => u.id === req.userId); // Look up in ALL users (or relevant, usually same)
+            const user = users.find(u => u.id === req.userId);
             return {
                 requestId: req.id,
                 userId: req.userId,
@@ -123,7 +137,7 @@ export async function GET(request: Request) {
         const onsitePersonnel = mapPersonnel(activePersonnelRequests.filter(r => r.type === 'ONSITE'));
         const offsitePersonnel = mapPersonnel(activePersonnelRequests.filter(r => r.type === 'OFFSITE'));
 
-        // 7. Monthly Trends
+        // 7. Monthly Trends (From filteredRecent)
         const monthlyTrends = Array.from({ length: 6 }, (_, i) => {
             const d = new Date()
             d.setMonth(d.getMonth() - (5 - i))
@@ -137,11 +151,7 @@ export async function GET(request: Request) {
             }
         });
 
-        const sixMonthsAgo = new Date();
-        sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
-        sixMonthsAgo.setDate(1);
-
-        relevantRequests.forEach(req => {
+        filteredRecent.forEach(req => {
             const created = new Date(req.createdAt.toDate ? req.createdAt.toDate() : req.createdAt);
             if (created >= sixMonthsAgo) {
                 const month = created.getMonth();
@@ -155,9 +165,9 @@ export async function GET(request: Request) {
             }
         });
 
-        // 8. Top Reasons
+        // 8. Top Reasons (From Working Set)
         const reasonCounts: { [key: string]: number } = {};
-        relevantRequests.forEach(req => {
+        workingSet.forEach(req => {
             const reason = (req.reason || '').trim();
             if (reason) reasonCounts[reason] = (reasonCounts[reason] || 0) + 1;
         });
@@ -167,13 +177,7 @@ export async function GET(request: Request) {
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        // 9. Location & Region Stats
-        // Need to loop users to get location identifiers, then map names?
-        // original code logic: req -> user -> location.name
-        // We have Users in memory.
-
-        // Fetch Master Data for names (Locations/Regions)
-        // Optimization: Fetch only used IDs? Just fetch all, small lists.
+        // 9. Location & Region Stats (From Working Set)
         const [locationsSnap, regionsSnap] = await Promise.all([
             adminDb.collection('locations').get(),
             adminDb.collection('regions').get()
@@ -184,7 +188,7 @@ export async function GET(request: Request) {
         const locationCounts: { [key: string]: number } = {};
         const regionCounts: { [key: string]: number } = {};
 
-        relevantRequests.forEach(req => {
+        workingSet.forEach(req => {
             const user = users.find(u => u.id === req.userId);
             if (user) {
                 const locName = (user.locationId && locMap.get(user.locationId)) || 'Unknown';
