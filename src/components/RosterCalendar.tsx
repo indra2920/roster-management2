@@ -106,8 +106,8 @@ export default function RosterCalendar() {
                                             <User className="w-4 h-4" />
                                         </div>
                                         <div className="ml-4">
-                                            <div className="text-sm font-medium text-gray-900">{req.user.name}</div>
-                                            <div className="text-sm text-gray-500">{req.user.email}</div>
+                                            <div className="text-sm font-medium text-gray-900">{req.user?.name || 'Unknown User'}</div>
+                                            <div className="text-sm text-gray-500">{req.user?.email || '-'}</div>
                                         </div>
                                     </div>
                                 </td>
@@ -147,7 +147,7 @@ export default function RosterCalendar() {
                                 <td className="px-6 py-4 whitespace-nowrap">
                                     {req.approvals && req.approvals.length > 0 ? (
                                         <div className="text-sm">
-                                            <div className="font-medium text-gray-900">{req.approvals[0].approver.name}</div>
+                                            <div className="font-medium text-gray-900">{req.approvals && req.approvals[0]?.approver?.name || 'Unknown'}</div>
                                             <div className="text-gray-500 text-xs">
                                                 {new Date(req.approvals[0].createdAt).toLocaleDateString('id-ID', {
                                                     day: '2-digit',
