@@ -1,7 +1,7 @@
 'use client'
 
 import { signIn } from 'next-auth/react'
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Lock, Mail, Loader2 } from 'lucide-react'
 
@@ -10,6 +10,11 @@ export default function LoginPage() {
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
     const router = useRouter()
+
+    // Prefetch dashboard for faster transition
+    useEffect(() => {
+        router.prefetch('/dashboard')
+    }, [router])
 
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
@@ -26,8 +31,12 @@ export default function LoginPage() {
             console.log("Login result:", result);
 
             if (result?.ok) {
+                console.log("Login successful, redirecting to dashboard...");
+                // Just push, don't refresh immediately to avoid double load. 
+                // Middleware/SessionProvider will handle session state.
                 router.push('/dashboard')
             } else {
+                console.error("Login failed:", result?.error);
                 const errorMsg = result?.error || 'Email atau password salah'
                 alert(`GAGAL LOGIN: ${errorMsg}`)
                 setLoading(false)

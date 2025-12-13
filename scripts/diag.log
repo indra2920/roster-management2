@@ -1,0 +1,9 @@
+--- Starting Diagnosis ---
+Starting...
+✅ Firebase Initialized
+Testing Firestore User Query...
+⏱️ Query Time: 292ms
+✅ User found!
+Testing Position Query...
+⏱️ Position Query Time: 80ms
+--- Diagnosis Complete in 422ms ---

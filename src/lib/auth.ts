@@ -13,25 +13,34 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
+                console.log("[AUTH] Authorize called with email:", credentials?.email);
+                const startTime = Date.now();
+
                 if (!credentials?.email || !credentials?.password) {
+                    console.log("[AUTH] Missing credentials");
                     return null
                 }
 
                 try {
                     // Query Firestore for user by email
+                    console.log("[AUTH] Querying Firestore...");
                     const usersRef = adminDb.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
+                    console.log(`[AUTH] Firestore query took ${Date.now() - startTime}ms`);
 
                     if (snapshot.empty) {
+                        console.log("[AUTH] User not found");
                         return null;
                     }
 
                     const userDoc = snapshot.docs[0];
                     const user = userDoc.data();
                     const userId = userDoc.id; // Use Doc ID as User ID
+                    console.log("[AUTH] User found:", userId, user.role);
 
                     // Check if user is active
                     if (!user.isActive) {
+                        console.log("[AUTH] User inactive");
                         throw new Error('Akun Anda belum diaktifkan oleh manager')
                     }
 
@@ -41,12 +50,19 @@ export const authOptions: NextAuthOptions = {
                         // Fetch Position Name manually if positionId exists
                         let positionName = undefined;
                         if (user.positionId) {
-                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
-                            if (positionDoc.exists) {
-                                positionName = positionDoc.data()?.name;
+                            try {
+                                const posStartTime = Date.now();
+                                const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
+                                console.log(`[AUTH] Position fetch took ${Date.now() - posStartTime}ms`);
+                                if (positionDoc.exists) {
+                                    positionName = positionDoc.data()?.name;
+                                }
+                            } catch (posError) {
+                                console.error("[AUTH] Failed to fetch position:", posError);
                             }
                         }
 
+                        console.log("[AUTH] Login successful for:", user.email);
                         return {
                             id: userId,
                             name: user.name,
@@ -57,19 +73,21 @@ export const authOptions: NextAuthOptions = {
                             locationId: user.locationId,
                             regionId: user.regionId,
                         }
+                    } else {
+                        console.log("[AUTH] Invalid password");
+                        return null;
                     }
                 } catch (error) {
-                    console.error("Auth Error:", error);
+                    console.error("[AUTH] Auth Error:", error);
                     return null;
                 }
-
-                return null
             }
         })
     ],
     callbacks: {
         async jwt({ token, user }) {
             if (user) {
+                console.log("[AUTH] JWT Callback - Setting User Data");
                 token.role = user.role
                 token.id = user.id
                 token.positionId = user.positionId
@@ -81,28 +99,18 @@ export const authOptions: NextAuthOptions = {
         },
         async session({ session, token }) {
             if (session?.user) {
-                session.user.role = token.role
-                session.user.id = token.id
-                session.user.positionId = token.positionId
-                session.user.positionName = token.positionName
-                session.user.locationId = token.locationId
-                session.user.regionId = token.regionId
+                // console.log("[AUTH] Session Callback"); 
+                session.user.role = token.role as any
+                session.user.id = token.id as string
+                session.user.positionId = token.positionId as string
+                session.user.positionName = token.positionName as string
+                session.user.locationId = token.locationId as string
+                session.user.regionId = token.regionId as string
             }
             return session
         }
     },
     pages: {
         signIn: '/login',
-    },
-    cookies: {
-        sessionToken: {
-            name: `next-auth.session-token`,
-            options: {
-                httpOnly: true,
-                sameSite: 'lax',
-                path: '/',
-                secure: process.env.NODE_ENV === 'production',
-            },
-        },
     },
 }
