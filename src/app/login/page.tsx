@@ -14,17 +14,27 @@ export default function LoginPage() {
     const handleSubmit = async (e: React.FormEvent) => {
         e.preventDefault()
         setLoading(true)
-        const result = await signIn('credentials', {
-            email,
-            password,
-            redirect: false,
-        })
 
-        if (result?.ok) {
-            router.push('/dashboard')
-        } else {
-            const errorMsg = result?.error || 'Email atau password salah'
-            alert(errorMsg)
+        try {
+            console.log("Attempting login for:", email);
+            const result = await signIn('credentials', {
+                email,
+                password,
+                redirect: false,
+            })
+
+            console.log("Login result:", result);
+
+            if (result?.ok) {
+                router.push('/dashboard')
+            } else {
+                const errorMsg = result?.error || 'Email atau password salah'
+                alert(`GAGAL LOGIN: ${errorMsg}`)
+                setLoading(false)
+            }
+        } catch (err: any) {
+            console.error("Login Error Catch:", err);
+            alert(`SYSTEM ERROR: ${err.message || 'Unknown error'}`)
             setLoading(false)
         }
     }
