@@ -303,14 +303,14 @@ export default function DashboardStats() {
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold">Onsite Saat Ini</h3>
                             <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium">
-                                {stats.activePersonnel.onsite.count} Orang
+                                {stats.activePersonnel?.onsite?.count ?? 0} Orang
                             </span>
                         </div>
                         <div className="space-y-3 max-h-96 overflow-y-auto">
                             {stats.activePersonnel.onsite.personnel.length === 0 ? (
                                 <p className="text-gray-500 text-sm text-center py-4">Tidak ada personel onsite</p>
                             ) : (
-                                stats.activePersonnel.onsite.personnel.map((person) => (
+                                stats.activePersonnel?.onsite?.personnel?.map((person) => (
                                     <div key={person.requestId} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                                         <div className="flex justify-between items-start">
                                             <div className="flex-1">
@@ -338,14 +338,14 @@ export default function DashboardStats() {
                         <div className="flex items-center justify-between mb-4">
                             <h3 className="text-lg font-semibold">Offsite Saat Ini</h3>
                             <span className="px-3 py-1 bg-green-100 text-green-800 rounded-full text-sm font-medium">
-                                {stats.activePersonnel.offsite.count} Orang
+                                {stats.activePersonnel?.offsite?.count ?? 0} Orang
                             </span>
                         </div>
                         <div className="space-y-3 max-h-96 overflow-y-auto">
                             {stats.activePersonnel.offsite.personnel.length === 0 ? (
                                 <p className="text-gray-500 text-sm text-center py-4">Tidak ada personel offsite</p>
                             ) : (
-                                stats.activePersonnel.offsite.personnel.map((person) => (
+                                stats.activePersonnel?.offsite?.personnel?.map((person) => (
                                     <div key={person.requestId} className="p-3 bg-gray-50 rounded-lg border border-gray-200">
                                         <div className="flex justify-between items-start">
                                             <div className="flex-1">
