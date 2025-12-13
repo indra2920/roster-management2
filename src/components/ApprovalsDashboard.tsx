@@ -44,7 +44,13 @@ export default function ApprovalsDashboard() {
             const res = await fetch('/api/approvals', { cache: 'no-store' })
             if (res.ok) {
                 const data = await res.json()
-                setRequests(data)
+                if (Array.isArray(data)) {
+                    setRequests(data)
+                } else {
+                    console.error("Invalid data format:", data)
+                    setRequests([])
+                    toast.error('Format data tidak valid')
+                }
             } else if (res.status === 401) {
                 toast.error('Session Anda telah berakhir. Silakan login kembali.')
             } else {

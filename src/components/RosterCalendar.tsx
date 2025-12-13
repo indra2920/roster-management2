@@ -24,9 +24,23 @@ export default function RosterCalendar() {
     const [requests, setRequests] = useState<Request[]>([])
 
     useEffect(() => {
-        fetch('/api/requests')
-            .then((res) => res.json())
-            .then((data) => setRequests(data))
+        const fetchRequests = async () => {
+            try {
+                const res = await fetch('/api/requests', { cache: 'no-store' })
+                if (!res.ok) throw new Error('Failed to fetch')
+                const data = await res.json()
+                if (Array.isArray(data)) {
+                    setRequests(data)
+                } else {
+                    console.error("Invalid data format:", data)
+                    setRequests([])
+                }
+            } catch (error) {
+                console.error("Error fetching requests:", error)
+                setRequests([])
+            }
+        }
+        fetchRequests()
     }, [])
 
     const getStatusBadge = (status: string) => {
