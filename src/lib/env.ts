@@ -11,7 +11,7 @@ const envSchema = z.object({
     NEXTAUTH_SECRET: z.string().min(1).optional(),
 
     // Database
-    DATABASE_URL: z.string().min(1, "DATABASE_URL is missing"),
+    // DATABASE_URL: z.string().min(1, "DATABASE_URL is missing"), // REMOVED: Not using SQL anymore
 
     // Node Environment
     NODE_ENV: z.enum(['development', 'test', 'production']).default('development'),
@@ -23,7 +23,7 @@ const processEnv = {
     FIREBASE_PRIVATE_KEY: process.env.FIREBASE_PRIVATE_KEY,
     NEXTAUTH_URL: process.env.NEXTAUTH_URL,
     NEXTAUTH_SECRET: process.env.NEXTAUTH_SECRET,
-    DATABASE_URL: process.env.DATABASE_URL,
+    // DATABASE_URL: process.env.DATABASE_URL,
     NODE_ENV: process.env.NODE_ENV,
 };
 
