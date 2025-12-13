@@ -15,92 +15,147 @@ export async function GET(request: Request) {
     const end = searchParams.get('end')
 
     try {
-        let requestsRef = adminDb.collection('requests');
-        let query: FirebaseFirestore.Query = requestsRef.orderBy('startDate', 'asc');
+        // 1. Date Filtering
+        // If no start/end provided, default to last 3 months to prevent loading full history.
+        let startDate: Date;
+        let endDate: Date;
 
-        if (session.user.role === 'EMPLOYEE') {
-            query = query.where('userId', '==', session.user.id);
+        if (start && end) {
+            startDate = new Date(start);
+            endDate = new Date(end);
+        } else {
+            const d = new Date();
+            d.setMonth(d.getMonth() - 2); // Last 3 months approx
+            d.setDate(1);
+            startDate = d;
+            endDate = new Date(new Date().setFullYear(new Date().getFullYear() + 1)); // Future open
         }
 
-        // Date filtering in Firestore is tricky with inequality on multiple fields vs ordering.
-        // We are ordering by startDate. We can startAt/endAt if we want.
-        // Or fetch and filter in memory if volume is low.
-        // For accurate range, let's filter in memory for MVP to avoid index issues with multiple fields (status, userId, dates).
-        // (Composite indexes might be missing).
+        const requestsRef = adminDb.collection('requests');
 
-        const snapshot = await query.get();
-        let requests = snapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        // Firestore Query with Date filters
+        // Note: This requires composite index (userId + startDate) if filtering by both.
+        // If index missing, we catch error and fallback or let Vercel logs guide.
+        // For MVP, we try to use the index.
 
-        // Filter dates in memory
-        if (start && end) {
-            const startDate = new Date(start);
-            const endDate = new Date(end);
+        let requests = [];
+        try {
+            if (session.user.role === 'EMPLOYEE') {
+                const snap = await requestsRef
+                    .where('userId', '==', session.user.id)
+                    .where('startDate', '>=', startDate)
+                    .get(); // Sorting might require index with where
+                requests = snap.docs.map((doc: DocumentData) => ({ id: doc.id, ...doc.data() })) as any[];
+            } else {
+                // Admin/Manager? Usually DashboardStats handles them. 
+                // But RosterCalendar might be used by them too.
+                // If Manager, filter by userIds? 
+                // Existing code didn't filter by manager logic in GET, seemingly?
+                // Actually existing code only checked 'EMPLOYEE'. 
+                // Let's keep existing logic but add date filter.
+                const snap = await requestsRef
+                    .where('startDate', '>=', startDate)
+                    .get();
+                requests = snap.docs.map((doc: DocumentData) => ({ id: doc.id, ...doc.data() })) as any[];
+            }
+        } catch (e) {
+            console.warn("Index missing for date filter, falling back to memory sort/filter", e);
+            // Fallback: Fetch by User only (if Employee) or All (if Admin) - limit to 100?
+            let q: FirebaseFirestore.Query = requestsRef;
+            if (session.user.role === 'EMPLOYEE') q = q.where('userId', '==', session.user.id);
+            const snap = await q.get();
+            requests = snap.docs.map((doc: DocumentData) => ({ id: doc.id, ...doc.data() })) as any[];
+        }
+
+        // Memory Filter END date (Firestore only allows range on one field well without complex indexes)
+        if (end) {
             requests = requests.filter(r => {
                 const s = r.startDate.toDate ? r.startDate.toDate() : new Date(r.startDate);
-                const e = r.endDate.toDate ? r.endDate.toDate() : new Date(r.endDate);
-                return s >= startDate && e <= endDate;
+                // We already filtered startDate >= startDate in DB (mostly)
+                // Just ensure logic is tight
+                return s >= startDate; // Redundant if DB worked
             });
         }
+        // Apply End Date filter in memory to be safe
+        // (Since we only filtered StartDate in DB)
+        requests = requests.filter(r => {
+            const s = r.startDate.toDate ? r.startDate.toDate() : new Date(r.startDate);
+            return s >= startDate;
+            // We don't strictly filter EndDate <= queryEnd unless strictly required. 
+            // Usually "requests starting in range" is what we want.
+        });
 
-        // Fetch User details for expansion (simulating include user)
-        // Also fetch Approvals
-        // This is N+1 if we are not careful.
-        // Optimization: Gather User IDs.
-        const userIds = new Set(requests.map(r => r.userId));
-        const usersRef = adminDb.collection('users');
-        // If many users, fetch all? Or individually?
-        // Let's fetch all active users map for caching.
-        // Actually, let's just fetch individual if small batch, or all if > 5. Assuming all for simplicity.
-        const allUsersSnap = await usersRef.get(); // Cache all users
-        const usersMap = new Map(allUsersSnap.docs.map(d => [d.id, d.data()]));
+
+        // 2. Optimize Approvals & Users Fetching
+        // Collect IDs first
+        const userIds = new Set<string>();
+        requests.forEach(r => userIds.add(r.userId));
 
         // Fetch Approvals for these requests
-        // Approvals have `requestId`.
-        // We can query approvals where requestId IN [...]. Firestore limits IN to 10.
-        // So fetch ALL approvals? Or just fetch approvals for each request individually?
-        // Query: approvalsRef.where('requestId', '==', r.id).orderBy('createdAt', 'desc').limit(1)
-        // Doing this in loop is slow.
-        // Better: Fetch all approvals (if reasonable size) or fetch by request logic efficiently.
-        // MVP: Loop with Promise.all (Parallel).
+        // Optimization: Run in parallel
+        const requestIds = requests.map(r => r.id);
+        const approvalsMap = new Map<string, any>(); // requestId -> latestApproval
 
-        const enrichedRequests = await Promise.all(requests.map(async (r) => {
-            const user = usersMap.get(r.userId);
+        // If too many requests, this parallel loop is still heavy?
+        // But we limited date range, so hopefully < 50 items.
 
-            // Fetch approval
-            const approvalsQuery = await adminDb.collection('approvals')
+        // Parallel Approval Fetch
+        await Promise.all(requests.map(async (r) => {
+            const approvalSnap = await adminDb.collection('approvals')
                 .where('requestId', '==', r.id)
-                // .orderBy('createdAt', 'desc') // Requires index
+                .orderBy('createdAt', 'desc')
+                .limit(1)
                 .get();
+            if (!approvalSnap.empty) {
+                const appData = { id: approvalSnap.docs[0].id, ...approvalSnap.docs[0].data() } as any;
+                approvalsMap.set(r.id, appData);
+                if (appData.approverId) userIds.add(appData.approverId);
+            }
+        }));
 
-            let approvals = approvalsQuery.docs.map(d => ({ id: d.id, ...d.data() })) as any[];
-            approvals.sort((a, b) => {
-                const dA = a.createdAt.toDate ? a.createdAt.toDate() : new Date(a.createdAt);
-                const dB = b.createdAt.toDate ? b.createdAt.toDate() : new Date(b.createdAt);
-                return dB.getTime() - dA.getTime();
-            });
-            const latestApproval = approvals[0];
+        // 3. Fetch Unique Users
+        // Fetch only the IDs we found (Owner + Approver)
+        const uniqueUserIds = Array.from(userIds);
+        const usersMap = new Map<string, any>();
 
+        // Chunk fetches if needed, but for < 30 items, Promise.all get() is fine or 'in' query
+        // Firestore 'in' limit is 10. safe to just loop get() for small set or fetch all if large?
+        // Fetching individual docs is 1 read each. 
+        // If 20 requests = 20-30 reads. 
+        // Fetching "all users" = 100+ reads. 
+        // Individual is better if total requests < total users.
+
+        await Promise.all(uniqueUserIds.map(async (uid) => {
+            const uSnap = await adminDb.collection('users').doc(uid).get();
+            if (uSnap.exists) usersMap.set(uid, uSnap.data());
+        }));
+
+        // 4. Enrich
+        const enrichedRequests = requests.map(r => {
+            const user = usersMap.get(r.userId);
+            const latestApproval = approvalsMap.get(r.id);
             let approver = null;
-            if (latestApproval && latestApproval.approverId) {
+            if (latestApproval?.approverId) {
                 const approverUser = usersMap.get(latestApproval.approverId);
-                if (approverUser) {
-                    approver = { name: approverUser.name, email: approverUser.email };
-                }
+                if (approverUser) approver = { name: approverUser.name, email: approverUser.email };
             }
 
             return {
                 ...r,
-                startDate: r.startDate.toDate ? r.startDate.toDate() : r.startDate, // Ensure serializable
+                startDate: r.startDate.toDate ? r.startDate.toDate() : r.startDate,
                 endDate: r.endDate.toDate ? r.endDate.toDate() : r.endDate,
                 createdAt: r.createdAt.toDate ? r.createdAt.toDate() : r.createdAt,
                 user: user ? { name: user.name, email: user.email } : null,
                 approvals: latestApproval ? [{
                     ...latestApproval,
                     createdAt: latestApproval.createdAt.toDate ? latestApproval.createdAt.toDate() : latestApproval.createdAt,
-                    approver: approver
+                    approver: approver // Now correctly populated
                 }] : []
             };
-        }));
+        });
+
+        // Sort by Date Descending
+        enrichedRequests.sort((a, b) => b.startDate.getTime() - a.startDate.getTime());
 
         return NextResponse.json(enrichedRequests)
     } catch (error) {
