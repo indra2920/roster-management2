@@ -1,0 +1,73 @@
+
+> roster-app@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.8 (Turbopack)
+   - Environments: .env
+
+ ⚠ The "middleware" file convention is deprecated. Please use "proxy" instead. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+   Creating an optimized production build ...
+ ✓ Compiled successfully in 23.3s
+   Skipping validation of types
+   Collecting page data using 7 workers ...
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+   Generating static pages using 7 workers (0/29) ...
+Firebase Admin Initialized with Private Key
+Firebase Admin Initialized with Private Key
+   Generating static pages using 7 workers (7/29) 
+   Generating static pages using 7 workers (14/29) 
+   Generating static pages using 7 workers (21/29) 
+ ✓ Generating static pages using 7 workers (29/29) in 4.8s
+   Finalizing page optimization ...
+
+Route (app)
+┌ ○ /
+├ ○ /_not-found
+├ ƒ /api/approvals
+├ ƒ /api/auth/[...nextauth]
+├ ƒ /api/auth/register
+├ ƒ /api/cron/notifications
+├ ƒ /api/dashboard/stats
+├ ƒ /api/database
+├ ƒ /api/database/[table]/[id]
+├ ƒ /api/debug/env
+├ ƒ /api/debug/users
+├ ƒ /api/master/locations
+├ ƒ /api/master/locations/[id]
+├ ƒ /api/master/positions
+├ ƒ /api/master/positions/[id]
+├ ƒ /api/master/regions
+├ ƒ /api/master/regions/[id]
+├ ƒ /api/notifications
+├ ƒ /api/notifications/[id]
+├ ƒ /api/requests
+├ ƒ /api/settings
+├ ƒ /api/settings/[key]
+├ ƒ /api/test-db
+├ ƒ /api/users
+├ ƒ /api/users/[id]
+├ ƒ /api/users/[id]/activate
+├ ○ /dashboard
+├ ○ /dashboard/database
+├ ○ /dashboard/master
+├ ○ /dashboard/master/employees
+├ ○ /dashboard/master/locations
+├ ○ /dashboard/master/positions
+├ ○ /dashboard/master/regions
+├ ○ /dashboard/request
+├ ○ /dashboard/settings
+├ ○ /login
+└ ○ /register
+
+
+ƒ Proxy (Middleware)
+
+○  (Static)   prerendered as static content
+ƒ  (Dynamic)  server-rendered on demand
+

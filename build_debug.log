@@ -1,0 +1,11 @@
+
+> roster-app@0.1.0 build
+> next build
+
+   ▲ Next.js 16.0.8 (Turbopack)
+   - Environments: .env
+
+
+> Build error occurred
+Error: Both middleware file "./src\src\middleware.ts" and proxy file "./src\src\proxy.ts" are detected. Please use "./src\src\proxy.ts" only. Learn more: https://nextjs.org/docs/messages/middleware-to-proxy
+    at ignore-listed frames
