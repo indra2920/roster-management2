@@ -2,6 +2,39 @@ import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { env } from "@/lib/env"
 
+// MODULE-SCOPE HARDCODED CREDENTIALS (ACCESSIBLE EVERYWHERE)
+const PROJECT_ID = "roster-f1cb8";
+const CLIENT_EMAIL = "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com";
+// NUCLEAR OPTION: HARDCODED PRIVATE KEY (VALID 1703 CHARS)
+const PRIVATE_KEY = `-----BEGIN PRIVATE KEY-----
+MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpSd7PfQUBIJQ1
+c2x5rWq7Q9vWOeZOuFW2KSlYHBY7f4ZaEW7gtdOntU6PBJGOfQEvcn0K4dgq6dBM
+DZtWTuu6R8koDmsvhoFf/yDqAoxkqNnSo0V/o7oOeZ9VCooh516bZnIO3nQa8OcT
+Urr9gvDpdVYqyzpL2hRJ9GnN/0e8DyvgSQ1KM97YhBFeR5PEHxV0Mp26PxXCwNfu
+QM9ZelQnoyeCPxTaxQAuIMX0rz1xRdOpF9OUNrvubDMd6ZXNoDigsRckkgKvMsse
+J3tUHuZ6grvcge/mrVDG8aYNjwQXLsJe9o0Drh8VlHsSyWB89RrUJRf9sKoKHp8i
+Z3xE33cbAgMBAAECggEADv8h7i7nZEEsP/aYqR10CLYrNwrBXJSMgJWcOaz19JFd
+0oQcLBXkyRo7pQRvlzglrxFXrcDHXeMr9lYiPlQWzSq80X/tfjP5KWA4MeLF6HOO
+JaXHFgE9YzjiT4NJLKsKwNN4zoO7CgPwmc/zYVqEgvnyXITNBkPXFkdrnrm6821z
+wEbbX9T5hSTa1bi1ZDGQq3eb1x5XS2sk8N8aBRK+nYLNnj35l+HWYV4yYpsCoAIr
+luJ3SbXWwzdNW2Pm6TcjuB1P5EUKwqukoqw4do/Q8rcUqxr6zsoOzEup+PJsAW11
+sT7RvUzhXzeuGIuqKNhxQIcQJXgiF03JlKb6DpkFCQKBgQDQ3bDjTh72GQp6p37M
+4ont89ynN+omSV8nMeiGQQFnEKVJTUIkFF2Q9c1i8PGXoA0NHT3fFVuZ/M3bNnxF
+vSSfX9ERXbzJOhLhifSwBIaEeospzFsQdpqGXnWyztngO8uVr2VOWH5SIyQcjgHK
+sYI+3/m+NtZifAMepXOYgjRHzwKBgQDPfcTCYCHXxCWtWnSBs1+GuuVrV9S/ifin
+wR6z06pXPoa7k2m+ljB7DsrV/kj2a/0xF3uOGXnw/wF8x+cH2LcdaMAJ8KcGwtiY
++WrJ5RCBDHHUI2wPu1lnmvtX0+g7v5KKtYMmWjsLZU3BcV+uaBOQ4FPUVkQkKDWn
+vhXqEe7i9QKBgQDJTaF6soRstF3BMUWoun4tdOep0t494GFxKUzueCCd8REcwPWK
+SIaVfBJj1c1DUeLCTPig1bjfhSPyr2S+4jk10edyUWHun6Yq8gd+zh3H+UO/GVJ7
+X5Q3BTtzBqI+1+KzdcSx6eB10aCwVL2tWcAqUTwm9DtT2Co5k0UCLBuvSQKBgQCA
+mbfYrVJsc8LSZczuEmmzjKTi2gYfTPlTp+tKk3bxKezB14TjvhyAONPYvAkmyhmc
+UqyejwW4K6UVXKTBhT1BOgpEXuZ21079ySC5z4JiKX9ndyjjuz+XakQ71DgMyBig
+Zg3KOIR99KSzr3wZEaKG2bK7WVhUfKN8uuDEOacw/QKBgAEukmwg19uajkHska6i
+ho66/aGqXVE47CqdhdYdD3ZfYeAKvjFQ6/eyjRISJA0B7FpelyyMwA+HWRzYzCOE
+bwJL4+Cus+COgfqfdiFZWXVmQuUANm/fDTvHcLKdjlnTnjz64wPD2Ix2L4aZ9s53
+/R31w/OV9PS75sBfdXO1m68y
+-----END PRIVATE KEY-----`;
+
 // Module-scope initialization (Clean & Stable like firebase-admin.ts)
 const initAuthFirebase = () => {
     const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app');
@@ -14,24 +47,12 @@ const initAuthFirebase = () => {
         return getFirestore(existingApp);
     }
 
-    // HARDCODED CREDENTIALS (To bypass stale Vercel Env Vars)
-    // Taken from proven-working test-db output
-    const projectId = "roster-f1cb8";
-    const clientEmail = "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com";
-
-    // We still have to trust the Key from Env, but let's try to clean it
-    let key = process.env.FIREBASE_PRIVATE_KEY || "";
-    if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
-        try { key = Buffer.from(key, 'base64').toString('utf-8'); } catch (e) { }
-    }
-    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
-    const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
-
-    console.log(`[AUTH] Hardcoded Init. PID:${projectId} Email:${clientEmail} KeyLen:${privateKey.length}`);
+    // Use Module Scope Credentials
+    console.log(`[AUTH] Hardcoded Init (Module). PID:${PROJECT_ID} KeyLen:${PRIVATE_KEY.length}`);
 
     try {
         const authApp = initializeApp({
-            credential: cert({ projectId, clientEmail, privateKey })
+            credential: cert({ projectId: PROJECT_ID, clientEmail: CLIENT_EMAIL, privateKey: PRIVATE_KEY })
         }, APP_NAME);
         return getFirestore(authApp);
     } catch (error) {
@@ -61,45 +82,11 @@ const getAuthDb = () => {
         return authDbInstance;
     }
 
-    // HARDCODED CREDENTIALS
-    const projectId = "roster-f1cb8";
-    const clientEmail = "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com";
-
-    // NUCLEAR OPTION: HARDCODED PRIVATE KEY
-    const privateKey = `-----BEGIN PRIVATE KEY-----
-MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpSd7PfQUBIJQ1
-c2x5rWq7Q9vWOeZOuFW2KSlYHBY7f4ZaEW7gtdOntU6PBJGOfQEvcn0K4dgq6dBM
-DZtWTuu6R8koDmsvhoFf/yDqAoxkqNnSo0V/o7oOeZ9VCooh516bZnIO3nQa8OcT
-Urr9gvDpdVYqyzpL2hRJ9GnN/0e8DyvgSQ1KM97YhBFeR5PEHxV0Mp26PxXCwNfu
-QM9ZelQnoyeCPxTaxQAuIMX0rz1xRdOpF9OUNrvubDMd6ZXNoDigsRckkgKvMsse
-J3tUHuZ6grvcge/mrVDG8aYNjwQXLsJe9o0Drh8VlHsSyWB89RrUJRf9sKoKHp8i
-Z3xE33cbAgMBAAECggEADv8h7i7nZEEsP/aYqR10CLYrNwrBXJSMgJWcOaz19JFd
-0oQcLBXkyRo7pQRvlzglrxFXrcDHXeMr9lYiPlQWzSq80X/tfjP5KWA4MeLF6HOO
-JaXHFgE9YzjiT4NJLKsKwNN4zoO7CgPwmc/zYVqEgvnyXITNBkPXFkdrnrm6821z
-wEbbX9T5hSTa1bi1ZDGQq3eb1x5XS2sk8N8aBRK+nYLNnj35l+HWYV4yYpsCoAIr
-luJ3SbXWwzdNW2Pm6TcjuB1P5EUKwqukoqw4do/Q8rcUqxr6zsoOzEup+PJsAW11
-sT7RvUzhXzeuGIuqKNhxQIcQJXgiF03JlKb6DpkFCQKBgQDQ3bDjTh72GQp6p37M
-4ont89ynN+omSV8nMeiGQQFnEKVJTUIkFF2Q9c1i8PGXoA0NHT3fFVuZ/M3bNnxF
-vSSfX9ERXbzJOhLhifSwBIaEeospzFsQdpqGXnWyztngO8uVr2VOWH5SIyQcjgHK
-sYI+3/m+NtZifAMepXOYgjRHzwKBgQDPfcTCYCHXxCWtWnSBs1+GuuVrV9S/ifin
-wR6z06pXPoa7k2m+ljB7DsrV/kj2a/0xF3uOGXnw/wF8x+cH2LcdaMAJ8KcGwtiY
-+WrJ5RCBDHHUI2wPu1lnmvtX0+g7v5KKtYMmWjsLZU3BcV+uaBOQ4FPUVkQkKDWn
-vhXqEe7i9QKBgQDJTaF6soRstF3BMUWoun4tdOep0t494GFxKUzueCCd8REcwPWK
-SIaVfBJj1c1DUeLCTPig1bjfhSPyr2S+4jk10edyUWHun6Yq8gd+zh3H+UO/GVJ7
-X5Q3BTtzBqI+1+KzdcSx6eB10aCwVL2tWcAqUTwm9DtT2Co5k0UCLBuvSQKBgQCA
-mbfYrVJsc8LSZczuEmmzjKTi2gYfTPlTp+tKk3bxKezB14TjvhyAONPYvAkmyhmc
-UqyejwW4K6UVXKTBhT1BOgpEXuZ21079ySC5z4JiKX9ndyjjuz+XakQ71DgMyBig
-Zg3KOIR99KSzr3wZEaKG2bK7WVhUfKN8uuDEOacw/QKBgAEukmwg19uajkHska6i
-ho66/aGqXVE47CqdhdYdD3ZfYeAKvjFQ6/eyjRISJA0B7FpelyyMwA+HWRzYzCOE
-bwJL4+Cus+COgfqfdiFZWXVmQuUANm/fDTvHcLKdjlnTnjz64wPD2Ix2L4aZ9s53
-/R31w/OV9PS75sBfdXO1m68y
------END PRIVATE KEY-----`;
-
-    console.log(`[AUTH] Hardcoded Init (FIX-v12). PID:${projectId} KeyLen:${privateKey.length}`);
+    console.log(`[AUTH] Hardcoded Init (FIX-v13). PID:${PROJECT_ID} KeyLen:${PRIVATE_KEY.length}`);
 
     try {
         const authApp = initializeApp({
-            credential: cert({ projectId, clientEmail, privateKey })
+            credential: cert({ projectId: PROJECT_ID, clientEmail: CLIENT_EMAIL, privateKey: PRIVATE_KEY })
         }, APP_NAME);
         authDbInstance = getFirestore(authApp);
         return authDbInstance;
@@ -167,11 +154,11 @@ export const authOptions: NextAuthOptions = {
 
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
-                    // Deep Debug Info
-                    const kLen = env.FIREBASE_PRIVATE_KEY?.length || 0;
-                    const pid = env.FIREBASE_PROJECT_ID;
-                    const email = env.FIREBASE_CLIENT_EMAIL;
-                    const debugInfo = `[KeyLen:${kLen} PID:${pid} Email:${email}]`;
+                    // Deep Debug Info - FORCE READ FROM HARDCODED VARS
+                    const kLen = PRIVATE_KEY?.length || 0;
+                    const pid = PROJECT_ID;
+                    const email = CLIENT_EMAIL;
+                    const debugInfo = `[KeyLen:${kLen} PID:${pid} Email:${email} USED_HARDCODED_V13]`;
 
                     // Throw the specific error so it reaches the client with DEBUG INFO
                     throw new Error(`${error.message} ${debugInfo}`);
