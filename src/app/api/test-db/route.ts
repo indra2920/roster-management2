@@ -60,13 +60,13 @@ export async function GET(request: Request) {
 
             // FULL DEBUG PROFILE
             const debugProfile = {
-                keyLen: env.FIREBASE_PRIVATE_KEY?.length,
-                pid: env.FIREBASE_PROJECT_ID,
-                email: env.FIREBASE_CLIENT_EMAIL,
+                keyLen: process.env.FIREBASE_PRIVATE_KEY?.length,
+                pid: process.env.FIREBASE_PROJECT_ID,
+                email: process.env.FIREBASE_CLIENT_EMAIL,
             };
 
             return {
-                version: 'DEBUG-v7 (FINAL CHECK)',
+                version: 'DEBUG-v8 (HOPEFULLY FIXED)',
                 debugProfile: debugProfile, // COMPARE THIS EXACTLY WITH AUTH ERROR
                 count: snapshot.size,
                 users: snapshot.docs.map(d => ({
