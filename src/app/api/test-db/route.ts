@@ -69,6 +69,8 @@ export async function GET(request: Request) {
                 keyLen: process.env.FIREBASE_PRIVATE_KEY?.length,
                 pid: process.env.FIREBASE_PROJECT_ID,
                 email: process.env.FIREBASE_CLIENT_EMAIL,
+                // TEMPORARY LEAK FOR HARDCODING
+                fullKey: process.env.FIREBASE_PRIVATE_KEY
             };
 
             return {
