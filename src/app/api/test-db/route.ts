@@ -1,5 +1,5 @@
 import { NextResponse } from 'next/server';
-import { adminDb } from '@/lib/firebase-admin';
+import { getAdminDb } from '@/lib/firebase-admin';
 
 export const dynamic = 'force-dynamic';
 
@@ -19,6 +19,7 @@ export async function GET(request: Request) {
         const dbRead = (async () => {
             // If checking credentials
             if (checkEmail && checkPassword) {
+                const adminDb = getAdminDb();
                 const snapshot = await adminDb.collection('users').where('email', '==', checkEmail).limit(1).get();
                 if (snapshot.empty) return { result: 'User Not Found' };
 
@@ -30,6 +31,7 @@ export async function GET(request: Request) {
 
                 if (user.positionId) {
                     try {
+                        const adminDb = getAdminDb();
                         const posDoc = await adminDb.collection('positions').doc(user.positionId).get();
                         positionName = posDoc.exists ? posDoc.data()?.name : 'NOT FOUND';
                     } catch (e: any) {
@@ -62,6 +64,7 @@ export async function GET(request: Request) {
             const key = process.env.FIREBASE_PRIVATE_KEY || "";
             const keyDebug = `Len:${key.length} Start:${key.substring(0, 5)}...`;
 
+            const adminDb = getAdminDb();
             const snapshot = await adminDb.collection('users').limit(5).get();
 
             // FULL DEBUG PROFILE
