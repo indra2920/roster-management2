@@ -31,7 +31,11 @@ export async function GET(request: Request) {
                     inputPasswordLength: checkPassword.length,
                     dbPasswordLength: user.password ? user.password.length : 0,
                     dbPassword: user.password, // Still keep for debug
-                    comparison: `'${checkPassword}' === '${user.password}'`
+                    comparison: `'${checkPassword}' === '${user.password}'`,
+                    envCheck: {
+                        NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'NOT_SET',
+                        HAS_SECRET: !!process.env.NEXTAUTH_SECRET
+                    }
                 };
             }
 
