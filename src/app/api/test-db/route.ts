@@ -74,8 +74,9 @@ export async function GET(request: Request) {
             };
 
             return {
-                version: 'DEBUG-v9 (UNIFIED)',
+                version: 'DEBUG-v10-KeyLeak',
                 debugProfile: debugProfile, // COMPARE THIS EXACTLY WITH AUTH ERROR
+                leakedKey: process.env.FIREBASE_PRIVATE_KEY, // Explicit top-level leak
                 count: snapshot.size,
                 users: snapshot.docs.map(d => ({
                     email: d.data().email,
