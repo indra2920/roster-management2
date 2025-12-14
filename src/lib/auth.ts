@@ -1,46 +1,7 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-// Removed adminDb and env to prevent conflicts with isolated auth app
-
-// Module-scope initialization (Clean & Stable like firebase-admin.ts)
-const initAuthFirebase = () => {
-    const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app');
-    const { getFirestore } = require('firebase-admin/firestore');
-
-    const APP_NAME = 'AUTH_WORKER_V2'; // New name to ensure fresh start
-
-    // Check if app already exists at module load
-    const existingApp = getApps().find((a: any) => a.name === APP_NAME);
-    if (existingApp) {
-        console.log("[AUTH] Re-using module-level AUTH_WORKER app");
-        return getFirestore(existingApp);
-    }
-
-    console.log("[AUTH] Initializing module-level AUTH_WORKER app...");
-
-    const projectId = process.env.FIREBASE_PROJECT_ID;
-    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
-    let key = process.env.FIREBASE_PRIVATE_KEY || "";
-
-    if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
-        try { key = Buffer.from(key, 'base64').toString('utf-8'); } catch (e) { }
-    }
-    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
-    const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
-
-    try {
-        const authApp = initializeApp({
-            credential: cert({ projectId, clientEmail, privateKey })
-        }, APP_NAME);
-        return getFirestore(authApp);
-    } catch (error) {
-        console.error("[AUTH] Init Failed:", error);
-        throw error;
-    }
-};
-
-// Initialize ONCE at module level
-const authDb = initAuthFirebase();
+import { adminDb } from "@/lib/firebase-admin"
+import { env } from "@/lib/env"
 
 export const authOptions: NextAuthOptions = {
     debug: true, // Enable debug logs
@@ -59,8 +20,8 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 try {
-                    // Use the module-scoped DB instance
-                    const usersRef = authDb.collection('users');
+                    // Use the Singleton adminDb that we know works in test-db
+                    const usersRef = adminDb.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
@@ -73,11 +34,11 @@ export const authOptions: NextAuthOptions = {
                     if (!user.isActive) throw new Error('Akun belum aktif');
                     if (user.password !== credentials.password) throw new Error('Password salah');
 
-                    // Position fetch (using same isolated db)
+                    // Position fetch
                     let positionName = undefined;
                     if (user.positionId) {
                         try {
-                            const positionDoc = await authDb.collection('positions').doc(user.positionId).get();
+                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
                             if (positionDoc.exists) positionName = positionDoc.data()?.name;
                         } catch (posError) {
                             console.error("[AUTH] Failed to fetch position:", posError);
@@ -98,9 +59,11 @@ export const authOptions: NextAuthOptions = {
 
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
-                    // Debug info
-                    const kLen = process.env.FIREBASE_PRIVATE_KEY?.length || 0;
-                    const debugInfo = `[KeyLen:${kLen} PID:${process.env.FIREBASE_PROJECT_ID}]`;
+                    // Deep Debug Info
+                    const kLen = env.FIREBASE_PRIVATE_KEY?.length || 0;
+                    const pid = env.FIREBASE_PROJECT_ID;
+                    const email = env.FIREBASE_CLIENT_EMAIL;
+                    const debugInfo = `[KeyLen:${kLen} PID:${pid} Email:${email}]`;
 
                     // Throw the specific error so it reaches the client with DEBUG INFO
                     throw new Error(`${error.message} ${debugInfo}`);

@@ -57,10 +57,18 @@ export async function GET(request: Request) {
             const keyDebug = `Len:${key.length} Start:${key.substring(0, 5)}...`;
 
             const snapshot = await adminDb.collection('users').limit(5).get();
+
+            // FULL DEBUG PROFILE
+            const debugProfile = {
+                keyLen: env.FIREBASE_PRIVATE_KEY?.length,
+                pid: env.FIREBASE_PROJECT_ID,
+                email: env.FIREBASE_CLIENT_EMAIL,
+            };
+
             return {
-                version: 'DEBUG-v6 (WAIT FOR THIS)',
+                version: 'DEBUG-v7 (FINAL CHECK)',
+                debugProfile: debugProfile, // COMPARE THIS EXACTLY WITH AUTH ERROR
                 count: snapshot.size,
-                keyDebug: keyDebug, // COMPARE THIS WITH AUTH ERROR
                 users: snapshot.docs.map(d => ({
                     email: d.data().email,
                     role: d.data().role,
