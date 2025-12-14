@@ -58,10 +58,6 @@ export const getAdminDb = () => {
 
     console.error("No FIREBASE_PRIVATE_KEY found in process.env.");
     throw new Error("Missing FIREBASE_PRIVATE_KEY");
- catch (error) {
-        console.error('Firebase Admin Init Failed (Hardcoded):', error);
-        throw error;
-    }
 }
 
 // Backwards compatibility for existing imports
