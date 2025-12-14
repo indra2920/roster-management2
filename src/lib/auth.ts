@@ -67,7 +67,10 @@ export const authOptions: NextAuthOptions = {
                     let positionName = undefined;
                     if (user.positionId) {
                         try {
-                            // Don't block login if position fetch fails, just log it
+                            const positionDoc = await db.collection('positions').doc(user.positionId).get();
+                            if (positionDoc.exists) positionName = positionDoc.data()?.name;
+                        } catch (posError) {
+                            console.error("[AUTH] Failed to fetch position:", posError);
                         }
                     }
 
@@ -86,7 +89,8 @@ export const authOptions: NextAuthOptions = {
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
                     // Debug info
-                    const debugInfo = `[KeyLen:${env.FIREBASE_PRIVATE_KEY?.length} Email:${env.FIREBASE_CLIENT_EMAIL} PID:${env.FIREBASE_PROJECT_ID}]`;
+                    const kLen = process.env.FIREBASE_PRIVATE_KEY?.length || 0;
+                    const debugInfo = `[KeyLen:${kLen} PID:${process.env.FIREBASE_PROJECT_ID}]`;
 
                     // Throw the specific error so it reaches the client with DEBUG INFO
                     throw new Error(`${error.message} ${debugInfo}`);
