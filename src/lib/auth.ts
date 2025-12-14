@@ -1,4 +1,4 @@
-```
+
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
 import { adminDb } from "@/lib/firebase-admin"
@@ -17,7 +17,7 @@ export const authOptions: NextAuthOptions = {
                 console.log("[AUTH] Authorize called with email:", credentials?.email);
                 // DEBUG: Inspect the key being used
                 const debugKey = env.FIREBASE_PRIVATE_KEY || 'MISSING';
-                const keyInfo = `Len:${ debugKey.length } Start:${ debugKey.substring(0, 5) }...`;
+                const keyInfo = `Len:${debugKey.length} Start:${debugKey.substring(0, 5)}...`;
 
                 if (!credentials?.email || !credentials?.password) {
                     throw new Error("Missing credentials");
@@ -29,7 +29,7 @@ export const authOptions: NextAuthOptions = {
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
-                        throw new Error(`User tidak ditemukan. (Key: ${ keyInfo })`);
+                        throw new Error(`User tidak ditemukan. (Key: ${keyInfo})`);
                     }
 
                     const userDoc = snapshot.docs[0];
