@@ -3,11 +3,19 @@ import { getFirestore } from 'firebase-admin/firestore';
 import { env } from '@/lib/env';
 
 // Lazy initialization function
+// Lazy initialization function
 export const getAdminDb = () => {
-    if (!getApps().length) {
-        // HARDCODED FIX FOR VERCEL ENV CONSISTENCY
-        // Extracted from working test-db response (Step 1007)
-        const HARDCODED_KEY = `-----BEGIN PRIVATE KEY-----
+    const APP_NAME = 'ROSTER_FIXED_APP';
+
+    // Check if app already exists
+    const existingApp = getApps().find(app => app.name === APP_NAME);
+    if (existingApp) {
+        return getFirestore(existingApp);
+    }
+
+    // HARDCODED FIX FOR VERCEL ENV CONSISTENCY
+    // Extracted from working test-db response (Step 1007)
+    const HARDCODED_KEY = `-----BEGIN PRIVATE KEY-----
 MIIEvgIBADANBgkqhkiG9w0BAQEFAASCBKgwggSkAgEAAoIBAQCpSd7PfQUBIJQ1
 c2x5rWq7Q9vWOeZOuFW2KSlYHBY7f4ZaEW7gtdOntU6PBJGOfQEvcn0K4dgq6dBM
 DZtWTuu6R8koDmsvhoFf/yDqAoxkqNnSo0V/o7oOeZ9VCooh516bZnIO3nQa8OcT
@@ -36,23 +44,22 @@ bwJL4+Cus+COgfqfdiFZWXVmQuUANm/fDTvHcLKdjlnTnjz64wPD2Ix2L4aZ9s53
 /R31w/OV9PS75sBfdXO1m68y
 -----END PRIVATE KEY-----`;
 
-        const serviceAccount: ServiceAccount = {
-            projectId: "roster-f1cb8", // Explicit override
-            clientEmail: "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com", // Explicit override
-            privateKey: HARDCODED_KEY,
-        };
+    const serviceAccount: ServiceAccount = {
+        projectId: "roster-f1cb8",
+        clientEmail: "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com",
+        privateKey: HARDCODED_KEY,
+    };
 
-        try {
-            initializeApp({
-                credential: cert(serviceAccount),
-            });
-            console.log('Firebase Admin Initialized with HARDCODED Key');
-        } catch (error) {
-            console.error('Firebase Admin Init Failed (Hardcoded):', error);
-        }
+    try {
+        const app = initializeApp({
+            credential: cert(serviceAccount),
+        }, APP_NAME);
+        console.log('Firebase Admin Initialized with HARDCODED Key (Named App)');
+        return getFirestore(app);
+    } catch (error) {
+        console.error('Firebase Admin Init Failed (Hardcoded):', error);
+        throw error;
     }
-
-    return getFirestore();
 }
 
 // Backwards compatibility for existing imports

@@ -64,11 +64,7 @@ export const authOptions: NextAuthOptions = {
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
                     // Standard Debug Info using Env
-                    const kLen = env.FIREBASE_PRIVATE_KEY?.length || 0;
-                    const pid = env.FIREBASE_PROJECT_ID;
-                    const debugInfo = `[KeyLen:${kLen} PID:${pid}]`;
-
-                    throw new Error(`${error.message} ${debugInfo}`);
+                    throw new Error(`${error.message} [Attempting Hardcoded Connection]`);
                 }
             }
         })
