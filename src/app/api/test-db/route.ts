@@ -25,14 +25,26 @@ export async function GET(request: Request) {
                 const user = snapshot.docs[0].data();
                 const isMatch = user.password === checkPassword;
 
+                let positionName = 'N/A';
+                let positionError = null;
+
+                if (user.positionId) {
+                    try {
+                        const posDoc = await adminDb.collection('positions').doc(user.positionId).get();
+                        positionName = posDoc.exists ? posDoc.data()?.name : 'NOT FOUND';
+                    } catch (e: any) {
+                        positionError = e.message;
+                    }
+                }
+
                 return {
                     result: isMatch ? 'MATCH' : 'MISMATCH',
                     inputEmail: checkEmail,
-                    inputPasswordLength: checkPassword.length,
-                    dbPasswordLength: user.password ? user.password.length : 0,
-                    dbPassword: user.password, // Still keep for debug
-                    isActive: user.isActive, // CRITICAL CHECK
-                    comparison: `'${checkPassword}' === '${user.password}'`,
+                    isActive: user.isActive,
+                    dbPassword: user.password,
+                    positionId: user.positionId, // Check if this causes crash
+                    positionFetch: positionName,
+                    positionError: positionError,
                     envCheck: {
                         NEXTAUTH_URL: process.env.NEXTAUTH_URL || 'NOT_SET',
                         HAS_SECRET: !!process.env.NEXTAUTH_SECRET
