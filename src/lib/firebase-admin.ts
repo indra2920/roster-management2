@@ -69,9 +69,23 @@ export const getAdminDb = () => {
     return getFirestore();
 }
 
-// Backwards compatibility for existing imports (but better to migrate them)
-// We use a getter to ensure it's lazy-ish if accessed? No, const is evaluated immediately.
-// Let's deprecate adminDb export to force migration, or make it a proxy?
-// For now, let's keep it but assume it might be empty if init failed?
-// Better: remove adminDb export and update consumers.
+// Backwards compatibility for existing imports
+// We use a Proxy to lazy-load the Firestore instance only when it's actually used.
+// This prevents build-time initialization errors while supporting legacy code.
+export const adminDb = new Proxy({} as FirebaseFirestore.Firestore, {
+    get: function (target, prop, receiver) {
+        // Initialize/Get the DB instance on first access of any property
+        const db = getAdminDb();
+
+        // Forward the access to the actual DB instance
+        const value = Reflect.get(db, prop, receiver);
+
+        // If the accessed property is a function (e.g., .collection()), bind it to the db instance
+        if (typeof value === 'function') {
+            return value.bind(db);
+        }
+
+        return value;
+    }
+});
 
