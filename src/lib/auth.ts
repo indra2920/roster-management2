@@ -77,8 +77,11 @@ export const authOptions: NextAuthOptions = {
                         console.log("[AUTH] Invalid password");
                         return null;
                     }
-                } catch (error) {
+                } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
+                    if (error.message === 'Akun Anda belum diaktifkan oleh manager') {
+                        throw error;
+                    }
                     return null;
                 }
             }

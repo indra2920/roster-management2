@@ -24,7 +24,7 @@ export default function Sidebar() {
         { name: 'Data Karyawan', href: '/dashboard/master/employees', icon: Users, positions: ['GSL', 'Koordinator'], roles: ['ADMIN', 'MANAGER'] },
         { name: 'Master Data', href: '/dashboard/master', icon: Database, roles: ['ADMIN', 'MANAGER'] },
         { name: 'Database', href: '/dashboard/database', icon: Database, roles: ['ADMIN'] },
-        { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN'] },
+        { name: 'Settings', href: '/dashboard/settings', icon: Settings, roles: ['ADMIN', 'MANAGER'] },
     ]
 
     return (

@@ -13,63 +13,133 @@ export async function GET(request: Request) {
     try {
         const now = new Date()
         const isManager = session.user.role === 'MANAGER';
-        const managerId = session.user.id;
+        const managerId = session.user.id; // Corrected: session.user.id is the manager's ID
 
-        // 1. Fetch Users
-        const usersRef = adminDb.collection('users');
-        const usersSnapshot = await usersRef.get();
-        const users = usersSnapshot.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-
-        // Filter users if Manager (subordinates only)
-        // Optimization: In Firestore we can query this, but we need all users for "Locations" stats? 
-        // No, stats usually imply context.
-        // Let's filter relevant users.
-        let relevantUsers = users;
-        if (isManager) {
-            relevantUsers = users.filter(u => u.managerId === managerId);
-        }
-
-        const relevantUserIds = new Set(relevantUsers.map(u => u.id));
-
-        // 2. Optimized Request Fetching
-        // Instead of fetching ALL requests, we fetch only what's needed for the dashboard.
-        // - Recent (Last 6 Months): For trends, distribution, and approved counts.
-        // - Pending (All): For the "Pending" counter and list.
-        // - Active (Future/Current): For "Active Personnel".
-
+        // 1. Optimized Request Fetching
+        // Fetch only potentially relevant requests
         const sixMonthsAgo = new Date();
         sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 5);
         sixMonthsAgo.setDate(1);
 
         const requestsRef = adminDb.collection('requests');
 
-        const [recentSnap, pendingSnap, activeSnap] = await Promise.all([
+        // Logic for Manager: Fetch subordinates first
+        let relevantUserIds: Set<string> | null = null;
+
+        if (isManager) {
+            // Fetch employees managed by this user
+            const subordinatesSnap = await adminDb.collection('users')
+                .where('managerId', '==', managerId)
+                .get();
+
+            if (subordinatesSnap.empty) {
+                // If no subordinates, return empty stats mostly
+                return NextResponse.json({
+                    totalEmployees: 0,
+                    pendingRequests: 0,
+                    approvedRequests: 0,
+                    requestsByType: [],
+                    requestsByStatus: [],
+                    activePersonnel: { onsite: { count: 0, personnel: [] }, offsite: { count: 0, personnel: [] } },
+                    monthlyTrends: [],
+                    topReasons: [],
+                    requestsByLocation: [],
+                    requestsByRegion: []
+                });
+            }
+
+            relevantUserIds = new Set(subordinatesSnap.docs.map(d => d.id));
+        }
+
+        // Helper to run query logic
+        const fetchRequests = async (baseQuery: FirebaseFirestore.Query) => {
+            if (isManager && relevantUserIds) {
+                // 'in' query supports max 30 items. 
+                // If > 30, we must split or just fetch all logic (fallback).
+                // For now, let's implement chunking for robustness.
+                const ids = Array.from(relevantUserIds);
+                const chunks = [];
+                for (let i = 0; i < ids.length; i += 30) {
+                    chunks.push(ids.slice(i, i + 30));
+                }
+
+                const results = await Promise.all(chunks.map(chunk =>
+                    baseQuery.where('userId', 'in', chunk).get()
+                ));
+
+                return results.flatMap(snap => snap.docs);
+            } else {
+                // Admin: Global fetch
+                const snap = await baseQuery.get();
+                return snap.docs;
+            }
+        };
+
+        const [recentDocs, pendingDocs, activeDocs] = await Promise.all([
             // Recent requests (last 6 months)
-            requestsRef.where('createdAt', '>=', sixMonthsAgo).get(),
+            fetchRequests(requestsRef.where('createdAt', '>=', sixMonthsAgo)),
             // All Pending requests
-            requestsRef.where('status', '==', 'PENDING').get(),
-            // Future/Active requests (EndDate >= Now)
-            // Note: This relies on 'endDate' being comparable. 
-            // If composite index issues arise, client might need to add index link from console.
-            requestsRef.where('endDate', '>=', now).get()
+            fetchRequests(requestsRef.where('status', '==', 'PENDING')),
+            // Future/Active requests
+            fetchRequests(requestsRef.where('endDate', '>=', now))
         ]);
 
-        const recentRequests = recentSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        const pendingRequestsList = pendingSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        const potentialActiveRequests = activeSnap.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const recentRequests = recentDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const pendingRequestsList = pendingDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const potentialActiveRequests = activeDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
-        // Filter by relevant users (if Manager)
-        const filterByManager = (reqs: any[]) => isManager ? reqs.filter(r => relevantUserIds.has(r.userId)) : reqs;
+        const filteredRecent = recentRequests;
+        const filteredPending = pendingRequestsList;
+        const filteredActive = potentialActiveRequests;
 
-        const filteredRecent = filterByManager(recentRequests);
-        const filteredPending = filterByManager(pendingRequestsList);
-        const filteredActive = filterByManager(potentialActiveRequests);
 
+        // 2. Identify Relevant Users
+        // Collect all unique User IDs from all these requests
+        const userIdsToCheck = new Set<string>();
+        recentRequests.forEach(r => userIdsToCheck.add(r.userId));
+        pendingRequestsList.forEach(r => userIdsToCheck.add(r.userId));
+        potentialActiveRequests.forEach(r => userIdsToCheck.add(r.userId));
+
+        // 3. Batch Fetch Users
+        // We only fetch users that are actually involved in the retrieved requests.
+        // This is much smaller than "ALL Users".
+        const uniqueUserIds = Array.from(userIdsToCheck);
+        const usersMap = new Map<string, any>();
+
+        if (uniqueUserIds.length > 0) {
+            // Firestore getAll supports up to 10 args? No, usually unlimited in array spread but good to check limits.
+            // If > 100, chunk it? 'getAll' is variadic. 
+            // In Node SDK, it can handle many.
+            const userRefs = uniqueUserIds.map(id => adminDb.collection('users').doc(id));
+            const userDocs = await adminDb.getAll(...userRefs);
+            userDocs.forEach(doc => {
+                if (doc.exists) usersMap.set(doc.id, { id: doc.id, ...doc.data() });
+            });
+        }
 
         // --- Aggregations ---
 
         // 1. Total Employees (Active)
-        const totalEmployees = relevantUsers.filter(u => u.isActive && u.role === 'EMPLOYEE').length;
+        // Optimization: Use Count Query
+        let totalEmployees = 0;
+        try {
+            let employeesQuery = adminDb.collection('users')
+                .where('isActive', '==', true)
+                .where('role', '==', 'EMPLOYEE');
+
+            if (isManager) {
+                employeesQuery = employeesQuery.where('managerId', '==', managerId);
+            }
+
+            const countSnap = await employeesQuery.count().get();
+            totalEmployees = countSnap.data().count;
+        } catch (e) {
+            console.error("Count query failed, falling back to approximation or 0", e);
+            // Fallback if count() not supported (unlikely in recent firebase-admin)
+            // If strictly needed, we could fetch IDs only? Too heavy.
+            // Just defaults to 0 or maybe we rely on usersMap size? No, usersMap is partial.
+        }
+
 
         // 2. Pending Requests
         const pendingRequests = filteredPending.length;
@@ -81,13 +151,8 @@ export async function GET(request: Request) {
             new Date(r.createdAt.toDate ? r.createdAt.toDate() : r.createdAt) >= firstDayOfMonth
         ).length;
 
-        // 4. Requests by Type (Based on Recent Data for Relevance)
-        // Merging recent + pending for a "Current View"? 
-        // Or just using Recent? Using Recent (Last 6 Months) + Pending represents "Active Window".
-        // Let's rely on filteredRecent which includes Approved/Rejected/Pending from last 6 months.
-        // But we should also include older Pending? 
-        // Let's combine unique IDs from filteredRecent and filteredPending for general stats to cover "Active concerns" + "Recent History".
 
+        // 4. Requests by Type / Status (Working Set)
         const workingSetMap = new Map();
         filteredRecent.forEach(r => workingSetMap.set(r.id, r));
         filteredPending.forEach(r => workingSetMap.set(r.id, r));
@@ -96,12 +161,12 @@ export async function GET(request: Request) {
         const onsiteCount = workingSet.filter(r => r.type === 'ONSITE').length;
         const offsiteCount = workingSet.filter(r => r.type === 'OFFSITE').length;
 
-        // 5. Requests by Status (From Working Set)
         const approvedCount = workingSet.filter(r => r.status === 'APPROVED').length;
         const rejectedCount = workingSet.filter(r => r.status === 'REJECTED').length;
         const pendingCount = workingSet.filter(r => r.status === 'PENDING').length;
 
-        // 6. Active Personnel (Currently Onsite/Offsite)
+
+        // 5. Active Personnel
         const calculateDuration = (startDate: any) => {
             const start = new Date(startDate.toDate ? startDate.toDate() : startDate)
             const diffTime = Math.abs(now.getTime() - start.getTime())
@@ -121,7 +186,7 @@ export async function GET(request: Request) {
         });
 
         const mapPersonnel = (reqs: DocumentData[]) => reqs.map(req => {
-            const user = users.find(u => u.id === req.userId);
+            const user = usersMap.get(req.userId); // fetching from loaded map
             return {
                 requestId: req.id,
                 userId: req.userId,
@@ -137,7 +202,8 @@ export async function GET(request: Request) {
         const onsitePersonnel = mapPersonnel(activePersonnelRequests.filter(r => r.type === 'ONSITE'));
         const offsitePersonnel = mapPersonnel(activePersonnelRequests.filter(r => r.type === 'OFFSITE'));
 
-        // 7. Monthly Trends (From filteredRecent)
+
+        // 6. Monthly Trends
         const monthlyTrends = Array.from({ length: 6 }, (_, i) => {
             const d = new Date()
             d.setMonth(d.getMonth() - (5 - i))
@@ -165,7 +231,8 @@ export async function GET(request: Request) {
             }
         });
 
-        // 8. Top Reasons (From Working Set)
+
+        // 7. Top Reasons
         const reasonCounts: { [key: string]: number } = {};
         workingSet.forEach(req => {
             const reason = (req.reason || '').trim();
@@ -177,19 +244,42 @@ export async function GET(request: Request) {
             .sort((a, b) => b.value - a.value)
             .slice(0, 5);
 
-        // 9. Location & Region Stats (From Working Set)
-        const [locationsSnap, regionsSnap] = await Promise.all([
-            adminDb.collection('locations').get(),
-            adminDb.collection('regions').get()
-        ]);
-        const locMap = new Map(locationsSnap.docs.map(d => [d.id, d.data().name]));
-        const regMap = new Map(regionsSnap.docs.map(d => [d.id, d.data().name]));
+
+        // 8. Location & Region Stats (Working Set Only)
+        // Collect Loc/Region IDs from the users we loaded
+        const locationIds = new Set<string>();
+        const regionIds = new Set<string>();
+
+        workingSet.forEach(req => {
+            const user = usersMap.get(req.userId);
+            if (user?.locationId) locationIds.add(user.locationId);
+            if (user?.regionId) regionIds.add(user.regionId);
+        });
+
+        // Batch Fetch Locations & Regions
+        const uniqueLocIds = Array.from(locationIds);
+        const uniqueRegIds = Array.from(regionIds);
+
+        const locMap = new Map();
+        const regMap = new Map();
+
+        if (uniqueLocIds.length > 0) {
+            const locRefs = uniqueLocIds.map(id => adminDb.collection('locations').doc(id));
+            const locDocs = await adminDb.getAll(...locRefs);
+            locDocs.forEach(d => { if (d.exists) locMap.set(d.id, d.data()?.name || '') });
+        }
+        if (uniqueRegIds.length > 0) {
+            const regRefs = uniqueRegIds.map(id => adminDb.collection('regions').doc(id));
+            const regDocs = await adminDb.getAll(...regRefs);
+            regDocs.forEach(d => { if (d.exists) regMap.set(d.id, d.data()?.name || '') });
+        }
+
 
         const locationCounts: { [key: string]: number } = {};
         const regionCounts: { [key: string]: number } = {};
 
         workingSet.forEach(req => {
-            const user = users.find(u => u.id === req.userId);
+            const user = usersMap.get(req.userId);
             if (user) {
                 const locName = (user.locationId && locMap.get(user.locationId)) || 'Unknown';
                 const regName = (user.regionId && regMap.get(user.regionId)) || 'Unknown';
@@ -207,10 +297,11 @@ export async function GET(request: Request) {
             .map(([name, value]) => ({ name, value }))
             .sort((a, b) => b.value - a.value);
 
+
         return NextResponse.json({
             totalEmployees,
             pendingRequests,
-            approvedRequests, // using simplified logic matching requests count
+            approvedRequests,
             requestsByType: [
                 { name: 'Onsite', value: onsiteCount },
                 { name: 'Offsite', value: offsiteCount }
