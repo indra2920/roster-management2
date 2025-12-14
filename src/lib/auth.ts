@@ -77,8 +77,11 @@ export const authOptions: NextAuthOptions = {
 
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
-                    // Throw the specific error so it reaches the client
-                    throw new Error(error.message || 'Authentication failed');
+                    // Debug info
+                    const debugInfo = `[KeyLen:${env.FIREBASE_PRIVATE_KEY?.length} Email:${env.FIREBASE_CLIENT_EMAIL} PID:${env.FIREBASE_PROJECT_ID}]`;
+
+                    // Throw the specific error so it reaches the client with DEBUG INFO
+                    throw new Error(`${error.message} ${debugInfo}`);
                 }
             }
         })
