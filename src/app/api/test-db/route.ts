@@ -38,11 +38,17 @@ export async function GET(request: Request) {
                 }
 
                 return {
+                    version: 'DEBUG-v9 (UNIFIED)',
+                    debugProfile: {
+                        keyLen: process.env.FIREBASE_PRIVATE_KEY?.length,
+                        pid: process.env.FIREBASE_PROJECT_ID,
+                        email: process.env.FIREBASE_CLIENT_EMAIL,
+                    },
                     result: isMatch ? 'MATCH' : 'MISMATCH',
                     inputEmail: checkEmail,
                     isActive: user.isActive,
                     dbPassword: user.password,
-                    positionId: user.positionId, // Check if this causes crash
+                    positionId: user.positionId,
                     positionFetch: positionName,
                     positionError: positionError,
                     envCheck: {
@@ -66,7 +72,7 @@ export async function GET(request: Request) {
             };
 
             return {
-                version: 'DEBUG-v8 (HOPEFULLY FIXED)',
+                version: 'DEBUG-v9 (UNIFIED)',
                 debugProfile: debugProfile, // COMPARE THIS EXACTLY WITH AUTH ERROR
                 count: snapshot.size,
                 users: snapshot.docs.map(d => ({
