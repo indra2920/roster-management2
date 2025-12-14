@@ -1,8 +1,7 @@
 
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { adminDb } from "@/lib/firebase-admin"
-import { env } from "@/lib/env"
+// Removed adminDb and env to prevent conflicts with isolated auth app
 
 export const authOptions: NextAuthOptions = {
     debug: true, // Enable debug logs
@@ -15,50 +14,59 @@ export const authOptions: NextAuthOptions = {
             },
             async authorize(credentials) {
                 console.log("[AUTH] Authorize called with email:", credentials?.email);
-                // DEBUG: Inspect the key being used
-                const debugKey = env.FIREBASE_PRIVATE_KEY || 'MISSING';
-                const keyInfo = `Len:${debugKey.length} Start:${debugKey.substring(0, 5)}...`;
 
                 if (!credentials?.email || !credentials?.password) {
                     throw new Error("Missing credentials");
                 }
 
                 try {
-                    // Use the Singleton adminDb that we know works in test-db
-                    const usersRef = adminDb.collection('users');
+                    // ISOLATION STRATEGY: Use a local, named Firebase App to avoid global conflicts
+                    const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app');
+                    const { getFirestore } = require('firebase-admin/firestore');
+
+                    // Parse Env Vars manually to be absolutely sure
+                    // (Copying logic from firebase-admin.ts to ensure self-sufficiency)
+                    const projectId = process.env.FIREBASE_PROJECT_ID;
+                    const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
+                    let key = process.env.FIREBASE_PRIVATE_KEY || "";
+
+                    if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+                        try { key = Buffer.from(key, 'base64').toString('utf-8'); }
+                        catch (e) { }
+                    }
+                    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
+                    const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+
+                    const APP_NAME = 'AUTH_WORKER';
+                    let authApp;
+
+                    if (getApps().find((a: any) => a.name === APP_NAME)) {
+                        authApp = getApp(APP_NAME);
+                    } else {
+                        console.log("[AUTH] Initializing isolated AUTH_WORKER app...");
+                        authApp = initializeApp({
+                            credential: cert({ projectId, clientEmail, privateKey })
+                        }, APP_NAME);
+                    }
+
+                    const db = getFirestore(authApp);
+                    const usersRef = db.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
-                        throw new Error(`User tidak ditemukan. (Key: ${keyInfo})`);
+                        throw new Error(`User tidak ditemukan.`);
                     }
 
-                    const userDoc = snapshot.docs[0];
-                    const user = userDoc.data();
-                    const userId = userDoc.id; // Use Doc ID as User ID
-                    console.log("[AUTH] User found:", userId, user.role);
+                    const user = snapshot.docs[0].data();
+                    const userId = snapshot.docs[0].id;
 
-                    // Check if user is active
-                    if (!user.isActive) {
-                        console.log("[AUTH] User inactive");
-                        throw new Error('Akun Anda belum diaktifkan oleh manager');
-                    }
+                    if (!user.isActive) throw new Error('Akun belum aktif');
+                    if (user.password !== credentials.password) throw new Error('Password salah');
 
-                    // Verify password (in real app use bcrypt)
-                    if (user.password !== credentials.password) {
-                        console.log("[AUTH] Invalid password. DB:", user.password, "Input:", credentials.password);
-                        throw new Error('Password salah');
-                    }
-
-                    // Fetch Position Name manually if positionId exists
+                    // Position fetch (using same isolated db)
                     let positionName = undefined;
                     if (user.positionId) {
                         try {
-                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
-                            if (positionDoc.exists) {
-                                positionName = positionDoc.data()?.name;
-                            }
-                        } catch (posError) {
-                            console.error("[AUTH] Failed to fetch position:", posError);
                             // Don't block login if position fetch fails, just log it
                         }
                     }
