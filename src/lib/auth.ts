@@ -1,7 +1,47 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { adminDb } from "@/lib/firebase-admin"
 import { env } from "@/lib/env"
+
+// Module-scope initialization (Clean & Stable like firebase-admin.ts)
+const initAuthFirebase = () => {
+    const { getApps, getApp, initializeApp, cert } = require('firebase-admin/app');
+    const { getFirestore } = require('firebase-admin/firestore');
+
+    const APP_NAME = 'AUTH_WORKER_HARDCODED';
+
+    const existingApp = getApps().find((a: any) => a.name === APP_NAME);
+    if (existingApp) {
+        return getFirestore(existingApp);
+    }
+
+    // HARDCODED CREDENTIALS (To bypass stale Vercel Env Vars)
+    // Taken from proven-working test-db output
+    const projectId = "roster-f1cb8";
+    const clientEmail = "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com";
+
+    // We still have to trust the Key from Env, but let's try to clean it
+    let key = process.env.FIREBASE_PRIVATE_KEY || "";
+    if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+        try { key = Buffer.from(key, 'base64').toString('utf-8'); } catch (e) { }
+    }
+    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
+    const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+
+    console.log(`[AUTH] Hardcoded Init. PID:${projectId} Email:${clientEmail} KeyLen:${privateKey.length}`);
+
+    try {
+        const authApp = initializeApp({
+            credential: cert({ projectId, clientEmail, privateKey })
+        }, APP_NAME);
+        return getFirestore(authApp);
+    } catch (error) {
+        console.error("[AUTH] Init Failed:", error);
+        throw error;
+    }
+};
+
+// Initialize ONCE at module level
+const authDb = initAuthFirebase();
 
 export const authOptions: NextAuthOptions = {
     debug: true, // Enable debug logs
@@ -20,8 +60,8 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 try {
-                    // Use the Singleton adminDb that we know works in test-db
-                    const usersRef = adminDb.collection('users');
+                    // Use the HARDCODED DB instance
+                    const usersRef = authDb.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
@@ -34,11 +74,11 @@ export const authOptions: NextAuthOptions = {
                     if (!user.isActive) throw new Error('Akun belum aktif');
                     if (user.password !== credentials.password) throw new Error('Password salah');
 
-                    // Position fetch
+                    // Position fetch 
                     let positionName = undefined;
                     if (user.positionId) {
                         try {
-                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
+                            const positionDoc = await authDb.collection('positions').doc(user.positionId).get();
                             if (positionDoc.exists) positionName = positionDoc.data()?.name;
                         } catch (posError) {
                             console.error("[AUTH] Failed to fetch position:", posError);
