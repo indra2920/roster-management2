@@ -95,7 +95,7 @@ bwJL4+Cus+COgfqfdiFZWXVmQuUANm/fDTvHcLKdjlnTnjz64wPD2Ix2L4aZ9s53
 /R31w/OV9PS75sBfdXO1m68y
 -----END PRIVATE KEY-----`;
 
-    console.log(`[AUTH] Hardcoded Init. PID:${projectId} KeyLen:${privateKey.length}`);
+    console.log(`[AUTH] Hardcoded Init (FIX-v12). PID:${projectId} KeyLen:${privateKey.length}`);
 
     try {
         const authApp = initializeApp({
