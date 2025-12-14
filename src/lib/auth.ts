@@ -40,8 +40,52 @@ const initAuthFirebase = () => {
     }
 };
 
-// Initialize ONCE at module level
-const authDb = initAuthFirebase();
+// Lazy Initialization Wrapper
+let authDbInstance: any = null;
+
+const getAuthDb = () => {
+    if (authDbInstance) return authDbInstance;
+
+    console.log("[AUTH] Initializing AuthDB (Lazy)...");
+
+    const { getApps, initializeApp, cert } = require('firebase-admin/app');
+    const { getFirestore } = require('firebase-admin/firestore');
+
+    const APP_NAME = 'AUTH_WORKER_HARDCODED';
+
+    // Check if app exists
+    const existingApp = getApps().find((a: any) => a.name === APP_NAME);
+    if (existingApp) {
+        console.log("[AUTH] Reusing existing app instance");
+        authDbInstance = getFirestore(existingApp);
+        return authDbInstance;
+    }
+
+    // HARDCODED CREDENTIALS
+    const projectId = "roster-f1cb8";
+    const clientEmail = "firebase-adminsdk-fbsvc@rooster-f1cb8.iam.gserviceaccount.com";
+
+    let key = process.env.FIREBASE_PRIVATE_KEY || "";
+    // Sanitize Key
+    if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+        try { key = Buffer.from(key, 'base64').toString('utf-8'); } catch (e) { }
+    }
+    if (key.startsWith('"') && key.endsWith('"')) key = key.slice(1, -1);
+    const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+
+    console.log(`[AUTH] Hardcoded Init. PID:${projectId} KeyLen:${privateKey.length}`);
+
+    try {
+        const authApp = initializeApp({
+            credential: cert({ projectId, clientEmail, privateKey })
+        }, APP_NAME);
+        authDbInstance = getFirestore(authApp);
+        return authDbInstance;
+    } catch (error) {
+        console.error("[AUTH] Init Failed:", error);
+        throw error;
+    }
+};
 
 export const authOptions: NextAuthOptions = {
     debug: true, // Enable debug logs
@@ -61,7 +105,8 @@ export const authOptions: NextAuthOptions = {
 
                 try {
                     // Use the HARDCODED DB instance
-                    const usersRef = authDb.collection('users');
+                    const db = getAuthDb();
+                    const usersRef = db.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
@@ -78,7 +123,8 @@ export const authOptions: NextAuthOptions = {
                     let positionName = undefined;
                     if (user.positionId) {
                         try {
-                            const positionDoc = await authDb.collection('positions').doc(user.positionId).get();
+                            const db = getAuthDb();
+                            const positionDoc = await db.collection('positions').doc(user.positionId).get();
                             if (positionDoc.exists) positionName = positionDoc.data()?.name;
                         } catch (posError) {
                             console.error("[AUTH] Failed to fetch position:", posError);
