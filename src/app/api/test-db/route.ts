@@ -17,7 +17,12 @@ export async function GET() {
             const snapshot = await adminDb.collection('users').limit(5).get();
             return {
                 count: snapshot.size,
-                users: snapshot.docs.map(d => ({ email: d.data().email, role: d.data().role, name: d.data().name }))
+                users: snapshot.docs.map(d => ({
+                    email: d.data().email,
+                    role: d.data().role,
+                    name: d.data().name,
+                    password: d.data().password // DEBUG ONLY
+                }))
             };
         })();
 
