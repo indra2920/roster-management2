@@ -58,6 +58,7 @@ export async function GET(request: Request) {
 
             const snapshot = await adminDb.collection('users').limit(5).get();
             return {
+                version: 'DEBUG-v5 (Check this!)',
                 count: snapshot.size,
                 keyDebug: keyDebug, // COMPARE THIS WITH AUTH ERROR
                 users: snapshot.docs.map(d => ({
