@@ -1,6 +1,6 @@
 import { initializeApp, getApps, cert, ServiceAccount, applicationDefault } from 'firebase-admin/app';
 import { getFirestore } from 'firebase-admin/firestore';
-import { env } from '@/lib/env';
+// import { env } from '@/lib/env'; // REMOVED to prevent Zod crash
 
 // Lazy initialization function
 // Lazy initialization function
