@@ -14,8 +14,11 @@ export async function GET() {
 
         // DB Read Promise
         const dbRead = (async () => {
-            const snapshot = await adminDb.collection('users').limit(1).get();
-            return snapshot.size;
+            const snapshot = await adminDb.collection('users').limit(5).get();
+            return {
+                count: snapshot.size,
+                users: snapshot.docs.map(d => ({ email: d.data().email, role: d.data().role, name: d.data().name }))
+            };
         })();
 
         // Race them
@@ -24,7 +27,7 @@ export async function GET() {
         return NextResponse.json({
             status: 'success',
             message: 'Connected to Firebase!',
-            userCount: result
+            data: result
         });
     } catch (error: any) {
         console.error('Firebase Test Error:', error);
