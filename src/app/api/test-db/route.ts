@@ -53,9 +53,13 @@ export async function GET(request: Request) {
             }
 
             // Default behavior
+            const key = process.env.FIREBASE_PRIVATE_KEY || "";
+            const keyDebug = `Len:${key.length} Start:${key.substring(0, 5)}...`;
+
             const snapshot = await adminDb.collection('users').limit(5).get();
             return {
                 count: snapshot.size,
+                keyDebug: keyDebug, // COMPARE THIS WITH AUTH ERROR
                 users: snapshot.docs.map(d => ({
                     email: d.data().email,
                     role: d.data().role,
