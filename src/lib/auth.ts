@@ -1,10 +1,9 @@
 import { NextAuthOptions } from "next-auth"
 import CredentialsProvider from "next-auth/providers/credentials"
-import { getAdminDb } from "@/lib/firebase-admin"
 import { env } from "@/lib/env"
 
 export const authOptions: NextAuthOptions = {
-    debug: true, // Enable debug logs
+    debug: true,
     providers: [
         CredentialsProvider({
             name: "Credentials",
@@ -13,58 +12,32 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
-                console.log("[AUTH] Authorize called with email:", credentials?.email);
-
-                if (!credentials?.email || !credentials?.password) {
-                    throw new Error("Missing credentials");
-                }
+                console.log("[AUTH] Forwarding auth to internal API...");
 
                 try {
-                    // Use the SHARED, ROBUST lazy init function from firebase-admin.ts
-                    // This uses process.env.FIREBASE_PRIVATE_KEY with explicit fix logic for Vercel
-                    const db = getAdminDb();
+                    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
+                    const res = await fetch(`${baseUrl}/api/internal/login`, {
+                        method: 'POST',
+                        body: JSON.stringify(credentials),
+                        headers: { "Content-Type": "application/json" }
+                    });
 
-                    const usersRef = db.collection('users');
-                    const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
+                    const data = await res.json();
 
-                    if (snapshot.empty) {
-                        throw new Error(`User tidak ditemukan.`);
+                    if (!res.ok) {
+                        throw new Error(data.error || "Auth Failed");
                     }
 
-                    const user = snapshot.docs[0].data();
-                    const userId = snapshot.docs[0].id;
-
-                    if (!user.isActive) throw new Error('Akun belum aktif');
-                    if (user.password !== credentials.password) throw new Error('Password salah');
-
-                    // Position fetch 
-                    let positionName = undefined;
-                    if (user.positionId) {
-                        try {
-                            const db = getAdminDb();
-                            const positionDoc = await db.collection('positions').doc(user.positionId).get();
-                            if (positionDoc.exists) positionName = positionDoc.data()?.name;
-                        } catch (posError) {
-                            console.error("[AUTH] Failed to fetch position:", posError);
-                        }
+                    if (data) {
+                        console.log("[AUTH] Internal API Success:", data.email);
+                        return data;
                     }
-
-                    console.log("[AUTH] Login successful for:", user.email);
-                    return {
-                        id: userId,
-                        name: user.name,
-                        email: user.email,
-                        role: user.role,
-                        positionId: user.positionId,
-                        positionName: positionName,
-                        locationId: user.locationId,
-                        regionId: user.regionId,
-                    }
+                    return null;
 
                 } catch (error: any) {
-                    console.error("[AUTH] Auth Error:", error);
-                    // Standard Debug Info using Env
-                    throw new Error(`${error.message} [Attempting Hardcoded Connection]`);
+                    console.error("[AUTH] Proxy Error:", error);
+                    // Add clearer debug info
+                    throw new Error(error.message);
                 }
             }
         })
@@ -72,7 +45,6 @@ export const authOptions: NextAuthOptions = {
     callbacks: {
         async jwt({ token, user }) {
             if (user) {
-                console.log("[AUTH] JWT Callback - Setting User Data");
                 token.role = user.role
                 token.id = user.id
                 token.positionId = user.positionId
@@ -84,7 +56,6 @@ export const authOptions: NextAuthOptions = {
         },
         async session({ session, token }) {
             if (session?.user) {
-                // console.log("[AUTH] Session Callback"); 
                 session.user.role = token.role as any
                 session.user.id = token.id as string
                 session.user.positionId = token.positionId as string
