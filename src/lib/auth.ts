@@ -23,14 +23,13 @@ export const authOptions: NextAuthOptions = {
 
                 try {
                     // Query Firestore for user by email
-                    console.log("[AUTH] Querying Firestore...");
+                    console.log("[AUTH] Querying Firestore for:", credentials.email);
                     const usersRef = adminDb.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
-                    console.log(`[AUTH] Firestore query took ${Date.now() - startTime}ms`);
 
                     if (snapshot.empty) {
                         console.log("[AUTH] User not found");
-                        return null;
+                        throw new Error('User email tidak ditemukan di database');
                     }
 
                     const userDoc = snapshot.docs[0];
@@ -41,48 +40,45 @@ export const authOptions: NextAuthOptions = {
                     // Check if user is active
                     if (!user.isActive) {
                         console.log("[AUTH] User inactive");
-                        throw new Error('Akun Anda belum diaktifkan oleh manager')
+                        throw new Error('Akun Anda belum diaktifkan oleh manager');
                     }
 
                     // Verify password (in real app use bcrypt)
-                    if (user.password === credentials.password) {
-
-                        // Fetch Position Name manually if positionId exists
-                        let positionName = undefined;
-                        if (user.positionId) {
-                            try {
-                                const posStartTime = Date.now();
-                                const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
-                                console.log(`[AUTH] Position fetch took ${Date.now() - posStartTime}ms`);
-                                if (positionDoc.exists) {
-                                    positionName = positionDoc.data()?.name;
-                                }
-                            } catch (posError) {
-                                console.error("[AUTH] Failed to fetch position:", posError);
-                            }
-                        }
-
-                        console.log("[AUTH] Login successful for:", user.email);
-                        return {
-                            id: userId,
-                            name: user.name,
-                            email: user.email,
-                            role: user.role,
-                            positionId: user.positionId,
-                            positionName: positionName,
-                            locationId: user.locationId,
-                            regionId: user.regionId,
-                        }
-                    } else {
-                        console.log("[AUTH] Invalid password");
-                        return null;
+                    if (user.password !== credentials.password) {
+                        console.log("[AUTH] Invalid password. DB:", user.password, "Input:", credentials.password);
+                        throw new Error('Password salah');
                     }
+
+                    // Fetch Position Name manually if positionId exists
+                    let positionName = undefined;
+                    if (user.positionId) {
+                        try {
+                            const positionDoc = await adminDb.collection('positions').doc(user.positionId).get();
+                            if (positionDoc.exists) {
+                                positionName = positionDoc.data()?.name;
+                            }
+                        } catch (posError) {
+                            console.error("[AUTH] Failed to fetch position:", posError);
+                            // Don't block login if position fetch fails, just log it
+                        }
+                    }
+
+                    console.log("[AUTH] Login successful for:", user.email);
+                    return {
+                        id: userId,
+                        name: user.name,
+                        email: user.email,
+                        role: user.role,
+                        positionId: user.positionId,
+                        positionName: positionName,
+                        locationId: user.locationId,
+                        regionId: user.regionId,
+                    }
+
                 } catch (error: any) {
                     console.error("[AUTH] Auth Error:", error);
-                    if (error.message === 'Akun Anda belum diaktifkan oleh manager') {
-                        throw error;
-                    }
-                    return null;
+                    // Throw the specific error so it reaches the client
+                    throw new Error(error.message || 'Authentication failed');
                 }
             }
         })
