@@ -22,9 +22,41 @@ export const authOptions: NextAuthOptions = {
                 }
 
                 try {
+                    // Direct Initialization to avoid singleton issues
+                    const { getApps, initializeApp, cert } = require('firebase-admin/app');
+                    const { getFirestore } = require('firebase-admin/firestore');
+
+                    let db;
+                    if (getApps().length === 0) {
+                        console.log("[AUTH] Initializing Firebase Admin internally...");
+                        // Re-implement the robust key parsing here
+                        let key = process.env.FIREBASE_PRIVATE_KEY || "";
+                        if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
+                            try {
+                                key = Buffer.from(key, 'base64').toString('utf-8');
+                            } catch (e) { console.warn("Direct Decode Failed") }
+                        }
+                        if (key.startsWith('"') && key.endsWith('"')) {
+                            key = key.slice(1, -1);
+                        }
+                        const privateKey = key.replace(/\\n/g, '\n').replace(/\r/g, '').trim();
+
+                        initializeApp({
+                            credential: cert({
+                                projectId: process.env.FIREBASE_PROJECT_ID,
+                                clientEmail: process.env.FIREBASE_CLIENT_EMAIL,
+                                privateKey: privateKey,
+                            })
+                        });
+                        db = getFirestore();
+                    } else {
+                        console.log("[AUTH] Using existing Firebase Admin app");
+                        db = getFirestore();
+                    }
+
                     // Query Firestore for user by email
                     console.log("[AUTH] Querying Firestore for:", credentials.email);
-                    const usersRef = adminDb.collection('users');
+                    const usersRef = db.collection('users');
                     const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
                     if (snapshot.empty) {
