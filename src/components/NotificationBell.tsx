@@ -75,8 +75,9 @@ export default function NotificationBell() {
     return (
         <div className="relative" ref={dropdownRef}>
             <button
+                suppressHydrationWarning
                 onClick={() => setIsOpen(!isOpen)}
-                className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-full transition-colors"
+                className="relative p-2 text-gray-600 hover:bg-gray-100 rounded-lg transition-colors"
             >
                 <Bell className="w-6 h-6" />
                 {unreadCount > 0 && (
@@ -132,6 +133,7 @@ export default function NotificationBell() {
                                             </div>
                                             {!notification.isRead && (
                                                 <button
+                                                    suppressHydrationWarning
                                                     onClick={() => markAsRead(notification.id)}
                                                     className="text-blue-600 hover:text-blue-800 self-start"
                                                     title="Tandai sudah dibaca"

@@ -3,6 +3,7 @@
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
 import { Calendar, FileText, Send, Loader2, AlertCircle } from 'lucide-react'
+import toast from 'react-hot-toast'
 
 export default function RequestForm() {
     const [type, setType] = useState('ONSITE')
@@ -70,10 +71,15 @@ export default function RequestForm() {
                 locationData.long = position.coords.longitude
                 // Optional: Reverse geocoding could happen here or on server, but for now just sending coords
             }
-        } catch (error) {
+        } catch (error: any) {
             console.error('Error getting location:', error)
-            // Proceed without location if it fails (or show warning?)
-            // User requirement implies location is important. Maybe show toast?
+            let msg = 'Gagal mengambil lokasi.'
+            if (error?.code === 1) msg = 'Izin lokasi ditolak. Pastikan Anda mengizinkan akses lokasi.'
+            else if (error?.code === 2) msg = 'GPS tidak tersedia.'
+            else if (error?.code === 3) msg = 'Waktu pengambilan lokasi habis.'
+
+            // toast.error(msg, { id: 'location-error' })
+            console.warn(msg)
         }
 
         const res = await fetch('/api/requests', {
@@ -115,6 +121,7 @@ export default function RequestForm() {
                 <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Request Type</label>
                     <select
+                        suppressHydrationWarning
                         value={type}
                         onChange={(e) => setType(e.target.value)}
                         className="w-full border-gray-300 rounded-lg shadow-sm focus:ring-blue-500 focus:border-blue-500"
@@ -136,6 +143,7 @@ export default function RequestForm() {
                             <FileText className="h-4 w-4 text-gray-400" />
                         </div>
                         <input
+                            suppressHydrationWarning
                             type="text"
                             value={reason}
                             onChange={(e) => setReason(e.target.value)}
@@ -211,6 +219,7 @@ export default function RequestForm() {
                 )}
 
                 <button
+                    suppressHydrationWarning
                     type="submit"
                     disabled={loading}
                     className="w-full flex justify-center py-2 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 disabled:opacity-50 transition-colors"

@@ -21,11 +21,13 @@ export async function GET(request: Request) {
         // Firestore query for date overlap is hard.
         // We'll fetch 'APPROVED' requests where endDate >= now.
         // Then filter startDate <= now in memory.
+        // 2. Get Active Requests
+        // Status APPROVED, Date covers 'now'
+        // Avoid Composite Index (status + endDate) by fetching status=APPROVED and filtering endDate in memory.
         const requestsRef = adminDb.collection('requests');
         const activeRequestsSnap = await requestsRef
             .where('status', '==', 'APPROVED')
-            .where('endDate', '>=', now)
-            .get();
+            .get(); // Only index on 'status' needed (auto)
 
         const activeRequests = activeRequestsSnap.docs
             .map(doc => ({ id: doc.id, ...doc.data() as any }))
@@ -93,15 +95,21 @@ export async function GET(request: Request) {
 
                 for (const targetUser of finalTargetUsers) {
                     // Check duplicate
+                    // Check duplicate
+                    // Avoid composite index by querying only relatedId and filtering memory
                     const notifSnap = await adminDb.collection('notifications')
-                        .where('userId', '==', targetUser.id)
                         .where('relatedId', '==', req.id)
-                        .where('type', '==', notificationType)
-                        .where('createdAt', '>=', yesterday)
-                        .limit(1)
                         .get();
 
-                    if (notifSnap.empty) {
+                    const duplicateExists = notifSnap.docs.some(d => {
+                        const data = d.data();
+                        const nDate = data.createdAt.toDate ? data.createdAt.toDate() : new Date(data.createdAt);
+                        return data.userId === targetUser.id &&
+                            data.type === notificationType &&
+                            nDate >= yesterday;
+                    });
+
+                    if (!duplicateExists) {
                         await adminDb.collection('notifications').add({
                             userId: targetUser.id,
                             type: notificationType,

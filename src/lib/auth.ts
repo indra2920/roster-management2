@@ -12,31 +12,55 @@ export const authOptions: NextAuthOptions = {
                 password: { label: "Password", type: "password" }
             },
             async authorize(credentials) {
-                console.log("[AUTH] Forwarding auth to internal API...");
+                if (!credentials?.email || !credentials?.password) return null;
+
+                console.log("[AUTH] Authorizing user:", credentials.email);
 
                 try {
-                    const baseUrl = process.env.NEXTAUTH_URL || "http://localhost:3000";
-                    const res = await fetch(`${baseUrl}/api/internal/login`, {
-                        method: 'POST',
-                        body: JSON.stringify(credentials),
-                        headers: { "Content-Type": "application/json" }
-                    });
+                    // Import dynamically or use the exported adminDb
+                    // We use adminDb from lib/firebase-admin
+                    const { adminDb } = await import("@/lib/firebase-admin");
 
-                    const data = await res.json();
+                    const usersRef = adminDb.collection('users');
+                    const snapshot = await usersRef.where('email', '==', credentials.email).limit(1).get();
 
-                    if (!res.ok) {
-                        throw new Error(data.error || "Auth Failed");
+                    if (snapshot.empty) {
+                        console.log("[AUTH] User not found");
+                        return null;
                     }
 
-                    if (data) {
-                        console.log("[AUTH] Internal API Success:", data.email);
-                        return data;
+                    const userDoc = snapshot.docs[0];
+                    const userData = userDoc.data();
+
+                    // DIRECT PLAIN TEXT PASSWORD CHECK (Based on current implementation)
+                    // TODO: Implement bcrypt in future
+                    if (userData.password !== credentials.password) {
+                        console.log("[AUTH] Invalid password");
+                        return null;
                     }
-                    return null;
+
+                    // Check if active
+                    if (userData.isActive === false) {
+                        throw new Error("Account is inactive. Contact Admin.");
+                    }
+
+                    console.log("[AUTH] Success:", userData.email);
+
+                    // Return user object mapped for NextAuth
+                    return {
+                        id: userDoc.id,
+                        email: userData.email,
+                        name: userData.name,
+                        role: userData.role,
+                        image: userData.photoUrl || null,
+                        positionId: userData.positionId,
+                        positionName: userData.positionName, // Ensure this exists or fetch it
+                        locationId: userData.locationId,
+                        regionId: userData.regionId
+                    };
 
                 } catch (error: any) {
-                    console.error("[AUTH] Proxy Error:", error);
-                    // Add clearer debug info
+                    console.error("[AUTH] Error:", error);
                     throw new Error(error.message);
                 }
             }

@@ -31,6 +31,7 @@ type Request = {
 
 export default function ApprovalsDashboard() {
     const [requests, setRequests] = useState<Request[]>([])
+    const [comments, setComments] = useState<Record<string, string>>({})
     const [loading, setLoading] = useState(true)
     const [processingId, setProcessingId] = useState<string | null>(null)
     const router = useRouter()
@@ -67,12 +68,13 @@ export default function ApprovalsDashboard() {
     const handleApproval = async (requestId: string, status: 'APPROVED' | 'REJECTED') => {
         setProcessingId(requestId)
         const toastId = toast.loading(status === 'APPROVED' ? 'Menyetujui...' : 'Menolak...')
+        const comment = comments[requestId] || ''
 
         try {
             const res = await fetch('/api/approvals', {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ requestId, status }),
+                body: JSON.stringify({ requestId, status, comment }),
             })
 
             if (res.ok) {
@@ -144,29 +146,45 @@ export default function ApprovalsDashboard() {
                                 </div>
                             </div>
 
-                            {/* Action Buttons */}
-                            <div className="flex gap-3 pt-2">
-                                <button
-                                    onClick={() => handleApproval(req.id, 'APPROVED')}
-                                    disabled={processingId === req.id}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <Check className="w-4 h-4" />
-                                    {processingId === req.id ? 'Processing...' : 'Approve'}
-                                </button>
-                                <button
-                                    onClick={() => handleApproval(req.id, 'REJECTED')}
-                                    disabled={processingId === req.id}
-                                    className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
-                                >
-                                    <X className="w-4 h-4" />
-                                    {processingId === req.id ? 'Processing...' : 'Reject'}
-                                </button>
+                            {/* Note Input */}
+                            <div>
+                                <label htmlFor={`comment-${req.id}`} className="block text-xs font-medium text-gray-700 mb-1">
+                                    Catatan Approval (Opsional)
+                                </label>
+                                <textarea
+                                    id={`comment-${req.id}`}
+                                    rows={2}
+                                    className="w-full px-3 py-2 text-sm border border-gray-300 rounded-md focus:ring-yellow-500 focus:border-yellow-500"
+                                    placeholder="Tambahkan catatan untuk request ini..."
+                                    value={comments[req.id] || ''}
+                                    onChange={(e) => setComments(prev => ({ ...prev, [req.id]: e.target.value }))}
+                                />
                             </div>
                         </div>
+
+                        {/* Action Buttons */}
+                        <div className="flex gap-3 pt-2">
+                            <button
+                                onClick={() => handleApproval(req.id, 'APPROVED')}
+                                disabled={processingId === req.id}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-green-600 text-white text-sm font-medium rounded-lg hover:bg-green-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <Check className="w-4 h-4" />
+                                {processingId === req.id ? 'Processing...' : 'Approve'}
+                            </button>
+                            <button
+                                onClick={() => handleApproval(req.id, 'REJECTED')}
+                                disabled={processingId === req.id}
+                                className="flex-1 flex items-center justify-center gap-2 px-4 py-2.5 bg-red-600 text-white text-sm font-medium rounded-lg hover:bg-red-700 transition-colors shadow-sm disabled:opacity-50 disabled:cursor-not-allowed"
+                            >
+                                <X className="w-4 h-4" />
+                                {processingId === req.id ? 'Processing...' : 'Reject'}
+                            </button>
+                        </div>
                     </div>
+
                 ))}
             </div>
-        </div>
+        </div >
     )
 }

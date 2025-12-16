@@ -3,13 +3,22 @@
 import { signIn } from 'next-auth/react'
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Lock, Mail, Loader2 } from 'lucide-react'
+import { Lock, Mail, Loader2, QrCode as QrIcon, X } from 'lucide-react'
+import { QRCodeSVG } from 'qrcode.react'
 
 export default function LoginPage() {
     const [email, setEmail] = useState('')
     const [password, setPassword] = useState('')
     const [loading, setLoading] = useState(false)
+    const [showQR, setShowQR] = useState(false)
+    const [currentUrl, setCurrentUrl] = useState('')
     const router = useRouter()
+
+    useEffect(() => {
+        if (typeof window !== 'undefined') {
+            setCurrentUrl(window.location.href)
+        }
+    }, [])
 
     // Prefetch dashboard for faster transition
     useEffect(() => {
@@ -83,6 +92,7 @@ export default function LoginPage() {
                                     <Mail className="h-5 w-5 text-gray-400" />
                                 </div>
                                 <input
+                                    suppressHydrationWarning
                                     type="email"
                                     value={email}
                                     onChange={(e) => setEmail(e.target.value)}
@@ -100,6 +110,7 @@ export default function LoginPage() {
                                     <Lock className="h-5 w-5 text-gray-400" />
                                 </div>
                                 <input
+                                    suppressHydrationWarning
                                     type="password"
                                     value={password}
                                     onChange={(e) => setPassword(e.target.value)}
@@ -111,6 +122,7 @@ export default function LoginPage() {
                         </div>
 
                         <button
+                            suppressHydrationWarning
                             type="submit"
                             disabled={loading}
                             className="w-full flex justify-center py-3 px-4 border border-transparent rounded-lg shadow-sm text-sm font-medium text-white bg-blue-600 hover:bg-blue-700 focus:outline-none focus:ring-2 focus:ring-offset-2 focus:ring-blue-500 transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
@@ -134,16 +146,53 @@ export default function LoginPage() {
                         </div>
                     </div>
 
-                    <div className="mt-6 text-center">
-                        <p className="text-sm text-gray-600">
-                            Belum punya akun?{' '}
-                            <a href="/register" className="text-blue-600 hover:text-blue-700 font-semibold">
-                                Daftar di sini
-                            </a>
-                        </p>
+                    <div className="mt-8 pt-6 border-t border-gray-100">
+                        <button
+                            suppressHydrationWarning
+                            type="button"
+                            onClick={() => setShowQR(true)}
+                            className="w-full flex items-center justify-center gap-2 text-gray-600 hover:text-blue-600 transition-colors text-sm font-medium"
+                        >
+                            <QrIcon className="w-4 h-4" />
+                            Akses via Mobile (QR Code)
+                        </button>
                     </div>
                 </div>
             </div>
+
+            {/* QR Code Modal */}
+            {showQR && (
+                <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+                    <div className="bg-white rounded-2xl shadow-2xl p-6 max-w-sm w-full mx-auto relative animate-in fade-in zoom-in duration-200">
+                        <button
+                            onClick={() => setShowQR(false)}
+                            className="absolute top-4 right-4 text-gray-400 hover:text-gray-600 transition-colors"
+                        >
+                            <X className="w-5 h-5" />
+                        </button>
+
+                        <div className="text-center">
+                            <h3 className="text-lg font-bold text-gray-900 mb-2">Scan untuk Akses Mobile</h3>
+                            <p className="text-sm text-gray-500 mb-6">
+                                Pastikan HP dan Komputer terhubung ke jaringan WiFi yang sama.
+                            </p>
+
+                            <div className="bg-white p-4 rounded-xl border border-gray-100 shadow-inner inline-block mb-4">
+                                <QRCodeSVG
+                                    value={currentUrl}
+                                    size={200}
+                                    level="H"
+                                    includeMargin={true}
+                                />
+                            </div>
+
+                            <div className="bg-blue-50 text-blue-800 text-xs p-3 rounded-lg text-left break-all font-mono">
+                                {currentUrl}
+                            </div>
+                        </div>
+                    </div>
+                </div>
+            )}
         </div>
     )
 }

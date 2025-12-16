@@ -26,7 +26,7 @@ export async function GET(request: Request) {
         // Logic for Manager: Fetch subordinates first
         let relevantUserIds: Set<string> | null = null;
 
-        if (isManager) {
+        if (isManager && false) { // DISABLED: Manager should see ALL data, matching /api/users
             // Fetch employees managed by this user
             const subordinatesSnap = await adminDb.collection('users')
                 .where('managerId', '==', managerId)
@@ -52,41 +52,31 @@ export async function GET(request: Request) {
         }
 
         // Helper to run query logic
-        const fetchRequests = async (baseQuery: FirebaseFirestore.Query) => {
-            if (isManager && relevantUserIds) {
-                // 'in' query supports max 30 items. 
-                // If > 30, we must split or just fetch all logic (fallback).
-                // For now, let's implement chunking for robustness.
-                const ids = Array.from(relevantUserIds);
-                const chunks = [];
-                for (let i = 0; i < ids.length; i += 30) {
-                    chunks.push(ids.slice(i, i + 30));
-                }
-
-                const results = await Promise.all(chunks.map(chunk =>
-                    baseQuery.where('userId', 'in', chunk).get()
-                ));
-
-                return results.flatMap(snap => snap.docs);
-            } else {
-                // Admin: Global fetch
-                const snap = await baseQuery.get();
-                return snap.docs;
+        // Helper to run query logic
+        // REFACTORED: For managers, fetch ALL requests for the user chunk to avoid composite indexes
+        // (userId + status, userId + date, etc.)
+        const fetchAllRequestsForUsers = async (userIds: string[]) => {
+            const chunks = [];
+            for (let i = 0; i < userIds.length; i += 30) {
+                chunks.push(userIds.slice(i, i + 30));
             }
+            const results = await Promise.all(chunks.map(chunk =>
+                adminDb.collection('requests').where('userId', 'in', chunk).get()
+            ));
+            return results.flatMap(snap => snap.docs);
         };
 
+        // Global fetch - Single Field Indexes generally exist or are easy to create
+        // If these fail, we might need a similar "Scan recent" strategy, but for now strict querying is likely okay for Admin root.
         const [recentDocs, pendingDocs, activeDocs] = await Promise.all([
-            // Recent requests (last 6 months)
-            fetchRequests(requestsRef.where('createdAt', '>=', sixMonthsAgo)),
-            // All Pending requests
-            fetchRequests(requestsRef.where('status', '==', 'PENDING')),
-            // Future/Active requests
-            fetchRequests(requestsRef.where('endDate', '>=', now))
+            requestsRef.where('createdAt', '>=', sixMonthsAgo).get(),
+            requestsRef.where('status', '==', 'PENDING').get(),
+            requestsRef.where('endDate', '>=', now).get()
         ]);
 
-        const recentRequests = recentDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        const pendingRequestsList = pendingDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
-        const potentialActiveRequests = activeDocs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const recentRequests = recentDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const pendingRequestsList = pendingDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
+        const potentialActiveRequests = activeDocs.docs.map(doc => ({ id: doc.id, ...doc.data() })) as any[];
 
         const filteredRecent = recentRequests;
         const filteredPending = pendingRequestsList;
@@ -124,15 +114,17 @@ export async function GET(request: Request) {
         let totalEmployees = 0;
         try {
             let employeesQuery = adminDb.collection('users')
-                .where('isActive', '==', true)
-                .where('role', '==', 'EMPLOYEE');
+                .where('isActive', '==', true);
+            // REMOVED .where('role', '==', 'EMPLOYEE') to count ALL subordinates regardless of role (e.g. SOS, GSL)
 
-            if (isManager) {
-                employeesQuery = employeesQuery.where('managerId', '==', managerId);
-            }
+            // if (isManager) {
+            //    console.log("[Stats] Manager ID:", managerId);
+            //    employeesQuery = employeesQuery.where('managerId', '==', managerId);
+            // }
 
             const countSnap = await employeesQuery.count().get();
             totalEmployees = countSnap.data().count;
+            // console.log("[Stats] Total Employees Found:", totalEmployees);
         } catch (e) {
             console.error("Count query failed, falling back to approximation or 0", e);
             // Fallback if count() not supported (unlikely in recent firebase-admin)

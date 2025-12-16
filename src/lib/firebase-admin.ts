@@ -18,6 +18,8 @@ export const getAdminDb = () => {
     const projectId = process.env.FIREBASE_PROJECT_ID;
     const clientEmail = process.env.FIREBASE_CLIENT_EMAIL;
 
+    console.log("[FirebaseAdmin] Init Start. Project:", projectId, "Email:", clientEmail, "KeyLen:", rawKey ? rawKey.length : 0);
+
     if (rawKey) {
         try {
             // Sanitize Private Key:
@@ -27,6 +29,7 @@ export const getAdminDb = () => {
             if (!key.includes("-----BEGIN PRIVATE KEY-----")) {
                 try {
                     key = Buffer.from(key, 'base64').toString('utf-8');
+                    console.log("[FirebaseAdmin] Key possibly Base64 decoded. New Len:", key.length);
                 } catch (e) {
                     console.warn("Failed to decode Base64 private key, falling back to raw value");
                 }

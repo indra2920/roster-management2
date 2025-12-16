@@ -17,7 +17,12 @@ export async function GET(
         const snapshot = await settingsRef.where('key', '==', key).limit(1).get();
 
         if (snapshot.empty) {
-            return NextResponse.json({ error: 'Setting not found' }, { status: 404 })
+            // Return default instead of 404 to avoid console errors
+            return NextResponse.json({
+                key: key,
+                value: "0", // Default to 0 (unlimited/unset)
+                description: "Default value (Setting not found)"
+            })
         }
 
         const setting = snapshot.docs[0].data();
